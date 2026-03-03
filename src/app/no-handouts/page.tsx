@@ -443,9 +443,13 @@ export default function NoHandouts() {
                                         <span className="font-mono text-slate-400 uppercase text-xs">CREDITS EARNED</span>
                                         <span className="font-mono text-white font-bold">0</span>
                                     </div>
-                                    <div className="flex justify-between p-4">
-                                        <span className="font-mono text-slate-400 uppercase text-xs">XP GAINED</span>
-                                        <span className="font-mono text-white font-bold">100</span>
+                                    <div className="flex justify-between p-4 border-b border-white/10">
+                                        <span className="font-mono text-slate-400 uppercase text-xs">BASE XP AWARDED</span>
+                                        <span className="font-mono text-white font-bold">+100 XP</span>
+                                    </div>
+                                    <div className="flex justify-between p-4 items-center">
+                                        <span className="font-mono text-slate-400 uppercase text-xs">XP UNCLAIMED</span>
+                                        <span className="font-mono text-yellow-600 font-bold blur-[1px] select-none">+50 XP</span>
                                     </div>
                                 </div>
 
@@ -455,23 +459,21 @@ export default function NoHandouts() {
                                     <div className="relative border border-yellow-500/50 bg-black/80 p-6 flex flex-col items-center text-center">
                                         <div className="text-yellow-500 flex items-center gap-2 mb-2">
                                             <span className="material-symbols-outlined text-sm">warning</span>
-                                            <span className="font-mono text-[10px] font-bold tracking-widest">CITIZEN ALERT</span>
+                                            <span className="font-mono text-[10px] font-bold tracking-widest">CITIZEN ALERT: YOU ARE OPERATING ON A LIMITED FREQUENCY.</span>
                                         </div>
-                                        <p className="font-black text-white uppercase tracking-widest mb-2 text-lg drop-shadow-[0_0_8px_rgba(234,179,8,0.8)]">
-                                            YOU LOST OUT ON 50 XP.
-                                        </p>
                                         <p className="font-mono text-[10px] text-slate-400 uppercase tracking-widest leading-relaxed">
-                                            STANDARD TIER USERS RECEIVE A 1.5x MULTIPLIER ON ALL MISSIONS.
+                                            By remaining on the Free Tier, you just forfeited 50 XP.<br />
+                                            Standard Tier Citizens receive a 1.5x Multiplier on every mission.
                                         </p>
                                     </div>
                                 </div>
 
-                                <div className="flex flex-col md:flex-row gap-4">
+                                <div className="flex flex-col gap-4 max-w-sm w-full">
                                     <button
                                         onClick={(e) => { e.stopPropagation(); router.push('/ascension'); }}
-                                        className="px-8 py-4 bg-yellow-500 text-black font-bold uppercase tracking-widest transition-all hover:bg-yellow-400 hover:shadow-[0_0_20px_rgba(234,179,8,0.5)]"
+                                        className="w-full px-8 py-4 bg-white text-black font-bold uppercase tracking-widest transition-all hover:bg-slate-200"
                                     >
-                                        ASCEND TO CLAIM MULTIPLIER
+                                        ASCEND TO STANDARD TIER (1.5x XP)
                                     </button>
                                     <button
                                         onClick={(e) => {
@@ -479,9 +481,9 @@ export default function NoHandouts() {
                                             if (backgroundAudioRef.current) try { backgroundAudioRef.current.stop(); } catch (err) { }
                                             setGameState('SELECT');
                                         }}
-                                        className="px-8 py-4 bg-transparent text-white font-bold uppercase tracking-widest border border-white/20 transition-all hover:bg-white hover:text-black"
+                                        className="w-full px-8 py-4 bg-transparent text-white font-bold uppercase tracking-widest border border-white/20 transition-all hover:bg-white hover:text-black"
                                     >
-                                        Back To Hub
+                                        RETURN TO COMMAND CENTER
                                     </button>
                                 </div>
                             </div>
