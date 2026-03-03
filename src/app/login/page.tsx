@@ -35,8 +35,10 @@ export default function LoginPage() {
             router.push('/dashboard');
         } catch (err: unknown) {
             const message = err instanceof Error ? err.message : 'Authentication failed';
-            if (message.includes('user-not-found') || message.includes('wrong-password')) {
-                setError('Invalid credentials. Check your email and password.');
+            if (message.includes('user-not-found') || message.includes('wrong-password') || message.includes('invalid-credential')) {
+                setError(isSignUp
+                    ? 'Invalid credentials provided for sign up.'
+                    : 'Invalid email or password. If you don\'t have an account, click "Create Account" below.');
             } else if (message.includes('email-already-in-use')) {
                 setError('This email is already registered. Try signing in.');
             } else if (message.includes('weak-password')) {
