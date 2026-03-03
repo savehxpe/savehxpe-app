@@ -65,6 +65,7 @@ export default function ArcadeMissionSector() {
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
     const [isProcessing, setIsProcessing] = useState(false);
     const [rewardModal, setRewardModal] = useState<boolean>(false);
+    const [syncBonusModal, setSyncBonusModal] = useState<boolean>(false);
 
     // Engine States
     const [score, setScore] = useState(0);
@@ -124,6 +125,39 @@ export default function ArcadeMissionSector() {
             setTimeout(() => setRewardModal(false), 5000); // clear after 5s
         } catch (e) {
             console.error("Precision reward error", e);
+        }
+    };
+
+    const processRestoreBonus = async () => {
+        if (!firebaseUser) return;
+        const RESTORE_WINDOW = 60 * 60 * 1000;
+        const lastRestored = systemStatus.last_restored_at;
+
+        if (!lastRestored || (Date.now() - lastRestored) > RESTORE_WINDOW) return;
+        if (userDoc?.last_sync_bonus_claimed === lastRestored) return;
+
+        try {
+            const userRef = doc(db, 'users', firebaseUser.uid);
+            await runTransaction(db, async (txn) => {
+                const docSnap = await txn.get(userRef);
+                const data = docSnap.data();
+                if (!data) return;
+
+                if (data.last_sync_bonus_claimed === lastRestored) return;
+
+                const newXp = (data.xp?.total || 0) + 100;
+                const eScore = Math.floor(Math.log10(newXp + 1) * 20);
+
+                txn.update(userRef, {
+                    'xp.total': newXp,
+                    engagementScore: eScore,
+                    last_sync_bonus_claimed: lastRestored
+                });
+            });
+            setSyncBonusModal(true);
+            setTimeout(() => setSyncBonusModal(false), 5000);
+        } catch (e) {
+            console.error("Restore bonus error", e);
         }
     };
 
@@ -209,6 +243,8 @@ export default function ArcadeMissionSector() {
                 precisionHistory.current = []; // reset after reward
             }
         }
+
+        processRestoreBonus();
 
         setTelemetry(prev => ({ ...prev, engineActive: false }));
     };
@@ -368,6 +404,19 @@ export default function ArcadeMissionSector() {
                             <div className="text-left">
                                 <h3 className="text-green-500 font-black tracking-widest uppercase text-sm">Precision Pioneer</h3>
                                 <p className="font-mono text-[10px] text-white/80">95% Accuracy x3 Maintained. +15 CR Deposited.</p>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* --- RE-SYNC BONUS MODAL --- */}
+                {syncBonusModal && (
+                    <div className="absolute top-36 right-4 z-50 border border-cyan-500 bg-black p-4 shadow-[0_0_20px_rgba(6,182,212,0.3)] animate-in slide-in-from-right duration-500">
+                        <div className="flex items-center gap-3">
+                            <span className="material-symbols-outlined text-cyan-400 text-3xl">wifi_protected_setup</span>
+                            <div className="text-left">
+                                <h3 className="text-cyan-400 font-black tracking-widest uppercase text-sm">RE-SYNC BONUS</h3>
+                                <p className="font-mono text-[10px] text-white/80">System Back Online. +100 XP Granted.</p>
                             </div>
                         </div>
                     </div>
