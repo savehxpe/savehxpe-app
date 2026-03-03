@@ -52,6 +52,7 @@ export interface UserDocument {
     engagementScore: number;
     inviteCode?: string;
     referral_count?: number;
+    last_sync_bonus_claimed?: number;
 }
 
 interface AuthContextType {
