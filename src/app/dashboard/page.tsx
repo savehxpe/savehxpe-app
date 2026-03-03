@@ -6,10 +6,13 @@ import { useAuth } from '@/hooks/useAuth';
 import { doc, runTransaction, arrayUnion, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import CommanderWidget from '@/components/CommanderWidget';
+import SystemAlert from '@/components/SystemAlert';
+import { useSystemStatus } from '@/hooks/useSystemStatus';
 
 export default function Dashboard() {
     const router = useRouter();
     const { userDoc, firebaseUser, logout } = useAuth();
+    const { systemStatus } = useSystemStatus();
 
     // Alchemist State
     const [promptInput, setPromptInput] = useState('');
@@ -221,6 +224,7 @@ DARK INDUSTRIAL PHONK X FREDDIE GIBBS FLOW. 150 BPM. DISTORTED 808s, GLITCHED HI
 
     return (
         <div className="bg-[#000000] text-slate-100 font-display min-h-screen flex flex-col overflow-x-hidden selection:bg-white selection:text-black">
+            <SystemAlert />
             <div className="relative flex min-h-screen w-full flex-col group/design-root">
                 <div className="fixed inset-0 overflow-hidden pointer-events-none z-0 flex items-center justify-center">
                     <div className="w-[300px] h-[300px] md:w-[600px] md:h-[600px] bg-white/5 rounded-full blur-[100px] absolute -top-20 -left-20"></div>
@@ -358,7 +362,8 @@ DARK INDUSTRIAL PHONK X FREDDIE GIBBS FLOW. 150 BPM. DISTORTED 808s, GLITCHED HI
                                                 <div className="flex flex-col gap-3 w-full">
                                                     <button
                                                         onClick={() => handleUnlockStem(stem.title)}
-                                                        className={`w-full py-3 text-xs font-bold uppercase tracking-[0.15em] transition-colors ${isOwned(stem.title.toUpperCase()) ? 'bg-black text-white border border-white hover:bg-white hover:text-black' : 'bg-white text-black hover:bg-slate-200'}`}
+                                                        disabled={systemStatus.maintenance_mode && !isOwned(stem.title.toUpperCase())}
+                                                        className={`w-full py-3 text-xs font-bold uppercase tracking-[0.15em] transition-colors ${systemStatus.maintenance_mode && !isOwned(stem.title.toUpperCase()) ? 'bg-slate-500 text-slate-200 cursor-not-allowed grayscale border border-slate-500' : isOwned(stem.title.toUpperCase()) ? 'bg-black text-white border border-white hover:bg-white hover:text-black' : 'bg-white text-black hover:bg-slate-200'}`}
                                                     >
                                                         {isOwned(stem.title.toUpperCase()) ? 'DOWNLOAD .WAV' : '50 Credits To Unlock'}
                                                     </button>
@@ -395,7 +400,8 @@ DARK INDUSTRIAL PHONK X FREDDIE GIBBS FLOW. 150 BPM. DISTORTED 808s, GLITCHED HI
                                         <div className="flex flex-col md:items-end w-full md:w-auto gap-3">
                                             <button
                                                 onClick={() => handleUnlockStem('BUNDLE', true)}
-                                                className={`w-full md:w-72 py-4 text-xs font-bold uppercase tracking-[0.15em] transition-colors ${isOwned('BUNDLE') ? 'bg-black text-white border border-white hover:bg-white hover:text-black' : 'bg-white text-black hover:bg-slate-200'} text-center`}
+                                                disabled={systemStatus.maintenance_mode && !isOwned('BUNDLE')}
+                                                className={`w-full md:w-72 py-4 text-xs font-bold uppercase tracking-[0.15em] transition-colors ${systemStatus.maintenance_mode && !isOwned('BUNDLE') ? 'bg-slate-500 text-slate-200 cursor-not-allowed grayscale' : isOwned('BUNDLE') ? 'bg-black text-white border border-white hover:bg-white hover:text-black' : 'bg-white text-black hover:bg-slate-200'} text-center`}
                                             >
                                                 {isOwned('BUNDLE') ? 'DOWNLOAD .ZIP' : 'UNLOCK ARCHIVE — 100 CR'}
                                             </button>
@@ -433,8 +439,8 @@ DARK INDUSTRIAL PHONK X FREDDIE GIBBS FLOW. 150 BPM. DISTORTED 808s, GLITCHED HI
                                                     />
                                                     <button
                                                         onClick={handleGenerate}
-                                                        disabled={isGenerating || !promptInput.trim()}
-                                                        className="bg-black text-white px-8 py-4 text-xs font-bold uppercase tracking-[0.2em] hover:bg-zinc-800 transition-colors whitespace-nowrap border-l border-white/10 disabled:opacity-50"
+                                                        disabled={isGenerating || !promptInput.trim() || systemStatus.maintenance_mode}
+                                                        className={`bg-black text-white px-8 py-4 text-xs font-bold uppercase tracking-[0.2em] transition-colors whitespace-nowrap border-l border-white/10 ${systemStatus.maintenance_mode ? 'bg-slate-600 grayscale cursor-not-allowed text-slate-300' : 'hover:bg-zinc-800 disabled:opacity-50'}`}
                                                     >
                                                         {isGenerating ? 'Synthesizing...' : 'Generate Prompt'}
                                                     </button>

@@ -8,6 +8,8 @@ import { db } from '@/lib/firebase';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { Instances, Instance } from '@react-three/drei';
 import * as THREE from 'three';
+import SystemAlert from '@/components/SystemAlert';
+import { useSystemStatus } from '@/hooks/useSystemStatus';
 
 // --- CONSTANTS ---
 const FALL_DURATION_MS = 2000;
@@ -55,6 +57,7 @@ type LeaderboardEntry = {
 export default function ArcadeMissionSector() {
     const router = useRouter();
     const { userDoc, firebaseUser } = useAuth();
+    const { systemStatus } = useSystemStatus();
 
     // UI States
     const [gameState, setGameState] = useState<'DASHBOARD' | 'STITCH' | 'PLAYING' | 'JACKPOT' | 'GAMEOVER' | 'LEADERBOARD'>('DASHBOARD');
@@ -281,7 +284,7 @@ export default function ArcadeMissionSector() {
     };
 
     const handleStart = async (selectedMode: 'STANDARD' | 'PRO') => {
-        if (!firebaseUser || !userDoc || isProcessing) return;
+        if (!firebaseUser || !userDoc || isProcessing || systemStatus.maintenance_mode) return;
 
         const reqCR = selectedMode === 'STANDARD' ? 10 : 25;
         if (userDoc.credits < reqCR) {
@@ -322,6 +325,7 @@ export default function ArcadeMissionSector() {
 
     return (
         <div className={`min-h-screen flex flex-col overflow-hidden selection:bg-white selection:text-black font-display ${mode === 'PRO' ? 'bg-[#050505]' : 'bg-black'}`}>
+            <SystemAlert />
             {/* 3D Wireframe Scene */}
             <div className="absolute inset-0 z-0">
                 <Canvas camera={{ position: [0, 2, 5], fov: 75 }}>
@@ -395,7 +399,7 @@ export default function ArcadeMissionSector() {
                                     <span className="text-white/60">ENTRY ANTE</span>
                                     <span className="text-white font-bold tracking-widest">10 CR</span>
                                 </div>
-                                <button disabled={isProcessing} className="mt-4 w-full py-3 bg-cyan-500/10 text-cyan-400 font-bold uppercase tracking-widest group-hover:bg-cyan-500 group-hover:text-black transition-all pt-3">
+                                <button disabled={isProcessing || systemStatus.maintenance_mode} className={`mt-4 w-full py-3 font-bold uppercase tracking-widest pt-3 transition-all ${systemStatus.maintenance_mode ? 'bg-slate-500 text-slate-300 cursor-not-allowed grayscale' : 'bg-cyan-500/10 text-cyan-400 group-hover:bg-cyan-500 group-hover:text-black'}`}>
                                     {isProcessing ? 'HANDSHAKE...' : 'INITIATE'}
                                 </button>
                             </div>
@@ -414,7 +418,7 @@ export default function ArcadeMissionSector() {
                                     <span className="text-white/60">ENTRY ANTE</span>
                                     <span className="text-white font-bold tracking-widest">25 CR</span>
                                 </div>
-                                <button disabled={isProcessing} className="mt-4 w-full py-3 bg-white/10 text-white font-bold uppercase tracking-widest group-hover:bg-white group-hover:text-black transition-all">
+                                <button disabled={isProcessing || systemStatus.maintenance_mode} className={`mt-4 w-full py-3 font-bold uppercase tracking-widest transition-all ${systemStatus.maintenance_mode ? 'bg-slate-600 text-slate-300 cursor-not-allowed grayscale' : 'bg-white/10 text-white group-hover:bg-white group-hover:text-black'}`}>
                                     {isProcessing ? 'HANDSHAKE...' : 'BREACH PROTOCOL'}
                                 </button>
                             </div>

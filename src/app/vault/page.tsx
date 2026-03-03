@@ -5,10 +5,13 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { doc, runTransaction, arrayUnion } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import SystemAlert from '@/components/SystemAlert';
+import { useSystemStatus } from '@/hooks/useSystemStatus';
 
 export default function VaultExplorer() {
     const router = useRouter();
     const { userDoc, firebaseUser } = useAuth();
+    const { systemStatus } = useSystemStatus();
 
     // Simulating access control: if tier is not PREMIUM, show gated view.
     const isPremium = userDoc?.tier.current === 'PREMIUM' || userDoc?.tier.current === 'STANDARD' || !!userDoc?.unlocked_assets?.includes('VAULT_ACCESS');
@@ -148,6 +151,7 @@ export default function VaultExplorer() {
 
     return (
         <div className="bg-white text-black font-display min-h-screen flex flex-col overflow-x-hidden selection:bg-black selection:text-white relative">
+            <SystemAlert />
             <div className="fixed inset-0 z-0 bg-grid-pattern bg-[length:40px_40px] pointer-events-none opacity-60"></div>
 
             <header className="relative z-20 w-full border-b-2 border-black bg-white px-6 py-4 md:px-12 flex justify-between items-center sticky top-0">
@@ -198,7 +202,8 @@ export default function VaultExplorer() {
                                 <p className="font-mono text-xs max-w-sm text-center mt-2 opacity-80">Requires Premium Status or one-time unlock.</p>
                                 <button
                                     onClick={handleUnlockAttempt}
-                                    className="mt-4 px-6 py-2 bg-white text-black font-bold uppercase tracking-wider text-sm hover:bg-slate-200"
+                                    disabled={systemStatus.maintenance_mode}
+                                    className={`mt-4 px-6 py-2 font-bold uppercase tracking-wider text-sm transition-colors ${systemStatus.maintenance_mode ? 'bg-slate-500 text-slate-200 cursor-not-allowed grayscale border border-slate-500' : 'bg-white text-black hover:bg-slate-200'}`}
                                 >
                                     Unlock (50 CR)
                                 </button>
@@ -279,7 +284,8 @@ export default function VaultExplorer() {
                                     </div>
                                     <button
                                         onClick={() => handleAssetAction(item.id)}
-                                        className="mt-auto w-full border-2 border-black text-black bg-white hover:bg-black hover:text-white h-12 font-bold uppercase tracking-widest transition-all flex items-center justify-center gap-2"
+                                        disabled={systemStatus.maintenance_mode && !isOwned}
+                                        className={`mt-auto w-full border-2 border-black h-12 font-bold uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${systemStatus.maintenance_mode && !isOwned ? 'bg-slate-400 text-slate-700 cursor-not-allowed grayscale' : 'text-black bg-white hover:bg-black hover:text-white'}`}
                                     >
                                         {isOwned ? (
                                             <>
