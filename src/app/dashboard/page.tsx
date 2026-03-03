@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { doc, runTransaction, arrayUnion, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import CommanderWidget from '@/components/CommanderWidget';
 
 export default function Dashboard() {
     const router = useRouter();
@@ -305,6 +306,10 @@ DARK INDUSTRIAL PHONK X FREDDIE GIBBS FLOW. 150 BPM. DISTORTED 808s, GLITCHED HI
                                     <p className="text-xs text-yellow-500/80 font-mono">NODE COMMANDER STATUS ACTIVE. YOU NOW EARN 1.5X XP.</p>
                                 </div>
                             )}
+
+                            {/* Commander Elite Widget */}
+                            <CommanderWidget userDoc={userDoc} firebaseUser={firebaseUser} setPromptInput={setPromptInput} />
+
                         </nav>
                         <div className="p-6 border-t border-white/10 mt-auto">
                             <button onClick={() => { logout(); router.push('/'); }} className="w-full py-3 px-4 border border-white/20 hover:border-white text-xs uppercase tracking-[0.2em] transition-colors rounded">
