@@ -21,6 +21,8 @@ export async function POST(req: Request) {
         let path = '';
         if (item === 'BUNDLE') {
             path = 'vault/source/HANDOUT_BUNDLE_V1.zip';
+        } else if (item === 'INSTRUMENTAL') {
+            path = 'vault/stems/HANDOUT_INSTRUMENTAL.wav';
         } else {
             path = `vault/source/${item}.wav`;
         }

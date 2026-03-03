@@ -364,17 +364,57 @@ export default function NoHandouts() {
 
                         {/* GAMEOVER OVERLAY */}
                         {gameState === 'GAMEOVER' && (
-                            <div className="absolute inset-0 z-50 bg-black/80 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center">
-                                <h1 className="text-4xl md:text-6xl font-black uppercase text-red-500 tracking-widest mb-4">MISSION EXPIRED</h1>
-                                <p className="font-mono text-white/50 mb-8 uppercase tracking-widest">
-                                    Final Score: {score} | Max Streak: {streak}
-                                </p>
-                                <button
-                                    onClick={(e) => { e.stopPropagation(); setGameState('SELECT'); }}
-                                    className="px-8 py-4 bg-white text-black font-bold uppercase tracking-widest border border-white transition-all hover:bg-black hover:text-white"
-                                >
-                                    Back To Hub
-                                </button>
+                            <div className="absolute inset-0 z-50 bg-black/90 backdrop-blur-xl flex flex-col items-center justify-center p-6 text-center animate-in fade-in duration-500">
+                                <h1 className="text-4xl md:text-6xl font-black uppercase text-white tracking-widest mb-2 drop-shadow-[0_0_15px_rgba(255,255,255,0.5)]">MISSION EXPIRED</h1>
+                                <p className="font-mono text-white/50 mb-8 uppercase tracking-widest text-xs">CONNECTION TERMINATED</p>
+
+                                {/* Stats Table */}
+                                <div className="w-full max-w-sm border border-white/20 bg-black mb-8">
+                                    <div className="flex justify-between p-4 border-b border-white/10">
+                                        <span className="font-mono text-slate-400 uppercase text-xs">FINAL SCORE</span>
+                                        <span className="font-mono text-white font-bold">{score}</span>
+                                    </div>
+                                    <div className="flex justify-between p-4 border-b border-white/10">
+                                        <span className="font-mono text-slate-400 uppercase text-xs">CREDITS EARNED</span>
+                                        <span className="font-mono text-white font-bold">0</span>
+                                    </div>
+                                    <div className="flex justify-between p-4">
+                                        <span className="font-mono text-slate-400 uppercase text-xs">XP GAINED</span>
+                                        <span className="font-mono text-white font-bold">100</span>
+                                    </div>
+                                </div>
+
+                                {/* XP FOMO Nudge */}
+                                <div className="relative w-full max-w-sm mb-8 rounded-lg overflow-hidden group">
+                                    <div className="absolute inset-0 bg-yellow-500/20 blur-md animate-pulse"></div>
+                                    <div className="relative border border-yellow-500/50 bg-black/80 p-6 flex flex-col items-center text-center">
+                                        <div className="text-yellow-500 flex items-center gap-2 mb-2">
+                                            <span className="material-symbols-outlined text-sm">warning</span>
+                                            <span className="font-mono text-[10px] font-bold tracking-widest">CITIZEN ALERT</span>
+                                        </div>
+                                        <p className="font-black text-white uppercase tracking-widest mb-2 text-lg drop-shadow-[0_0_8px_rgba(234,179,8,0.8)]">
+                                            YOU LOST OUT ON 50 XP.
+                                        </p>
+                                        <p className="font-mono text-[10px] text-slate-400 uppercase tracking-widest leading-relaxed">
+                                            STANDARD TIER USERS RECEIVE A 1.5x MULTIPLIER ON ALL MISSIONS.
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <div className="flex flex-col md:flex-row gap-4">
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); router.push('/ascension'); }}
+                                        className="px-8 py-4 bg-yellow-500 text-black font-bold uppercase tracking-widest transition-all hover:bg-yellow-400 hover:shadow-[0_0_20px_rgba(234,179,8,0.5)]"
+                                    >
+                                        ASCEND TO CLAIM MULTIPLIER
+                                    </button>
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); setGameState('SELECT'); }}
+                                        className="px-8 py-4 bg-transparent text-white font-bold uppercase tracking-widest border border-white/20 transition-all hover:bg-white hover:text-black"
+                                    >
+                                        Back To Hub
+                                    </button>
+                                </div>
                             </div>
                         )}
 

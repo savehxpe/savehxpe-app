@@ -140,7 +140,9 @@ DARK INDUSTRIAL PHONK X FREDDIE GIBBS FLOW. 150 BPM. DISTORTED 808s, GLITCHED HI
             const { getDownloadURL, ref } = await import('firebase/storage');
             const { storage } = await import('@/lib/firebase');
 
-            const path = `vault/previews/${stemName.toUpperCase()}.wav`;
+            const path = stemName.toUpperCase() === 'INSTRUMENTAL'
+                ? `vault/previews/${stemName.toUpperCase()}.mp3`
+                : `vault/previews/${stemName.toUpperCase()}.wav`;
             const url = await getDownloadURL(ref(storage, path));
 
             const audio = new Audio(url);
@@ -262,7 +264,8 @@ DARK INDUSTRIAL PHONK X FREDDIE GIBBS FLOW. 150 BPM. DISTORTED 808s, GLITCHED HI
                                     {[
                                         { title: 'Drums', file: 'STEM_FILE_01.WAV', img: "https://lh3.googleusercontent.com/aida-public/AB6AXuD9LC0I08unnfrnQSzMPqY0--dn0V5HdDMRKNJ9le1Ixuoe1Wb28SGIYrQ5yUPZKWQKdas6Qo_qa2lEwHVk3QAG2Mg1iIZTCJTuP4y6HLyBo1Or-dIgMqWxiJTCUvgWbvLtVHEbD4FF0kt1TX-ZV59-GL8Kb7DVppn_HLLlhyWlNDnzivKknCO8z7JdyceB-plJbHz015GKOSl0OiG3l5lFf51vBkcoH9edkQKy00cQUhileEzO1ebX5pSVX9bLMsuyVpTQGPjq09Y" },
                                         { title: 'Bass', file: 'STEM_FILE_02.WAV', img: "https://lh3.googleusercontent.com/aida-public/AB6AXuBYvm7ZZvozth3hIUIKlKeXZnXItW8prQSbKBb-uilqt7XsURZf8XPpdbtS3v3iJzYlzsQgVTFGK5aEoOXDKwgzK-oti8KvLuapewzT0OHRYq6z4Cf7q1Ywze8GryN2obc2-7gYzkF_MYdhEJwXUR-0H-JyCb36ieQQDKdKMB3IxmTwKBdZx8HBER5zc0gSQ8mdzrKFLtkeQMjuRCaZ1rXYDHy4nAklcohOY9Bz_2WS_vMEqeu4sv_ZZx8ewS9s9EMBBhmbkbjN888" },
-                                        { title: 'Synths', file: 'STEM_FILE_03.WAV', img: "https://lh3.googleusercontent.com/aida-public/AB6AXuCFQhPoMjFkWrCcJKOdl3Be8FH20GZ2u1LVs7RI3Jff2eczjh3hUACmwLNG64iSsxqA02A94skHH1xEuAiNmDEFmenH_fMb4AvOrCC47ztMpMPcodK5RNY4GNcZeRoMhdm5I4gniTrC8H4ZPWoikS2XvWnKVDD_OOCIeJFJiIVTd_6pu6DoXSAoXQyc7aqTCZFlYduBuukGsA95MhIVepBcDBO1-rq7VhV6I1LwdyqdmMxCmwjmSzV4eW4dvZQ6Il4QBEwBnmc7s5w" }
+                                        { title: 'Synths', file: 'STEM_FILE_03.WAV', img: "https://lh3.googleusercontent.com/aida-public/AB6AXuCFQhPoMjFkWrCcJKOdl3Be8FH20GZ2u1LVs7RI3Jff2eczjh3hUACmwLNG64iSsxqA02A94skHH1xEuAiNmDEFmenH_fMb4AvOrCC47ztMpMPcodK5RNY4GNcZeRoMhdm5I4gniTrC8H4ZPWoikS2XvWnKVDD_OOCIeJFJiIVTd_6pu6DoXSAoXQyc7aqTCZFlYduBuukGsA95MhIVepBcDBO1-rq7VhV6I1LwdyqdmMxCmwjmSzV4eW4dvZQ6Il4QBEwBnmc7s5w" },
+                                        { title: 'Instrumental', file: 'HANDOUT_INSTRUMENTAL.WAV', img: "https://lh3.googleusercontent.com/aida-public/AB6AXuB2eD6j_2z0oXGfOeyxYZR_oKXXH2T5bHIn_2kU3o6v23XgW8VqT7Ym8e8mFk9Vl8J5c4n8w3s0z5Q1l4t1QXV1S5P_1E_1t_4g6g2f9k4s0D3Y_p2D_8e1e_0R_F_s_50M2v3N3s2Y8L2x4f9X6D3z2O1D04" }
                                     ].map((stem, index) => (
                                         <div key={index} className="relative overflow-hidden rounded-lg border border-white/10 aspect-[3/4] flex flex-col justify-end p-6 bg-black/50 transition-all duration-300 hover:border-white/30 group">
                                             <div className="absolute inset-0 w-full h-full bg-cover bg-center opacity-50 blur-[15px] grayscale" style={{ backgroundImage: `url('${stem.img}')` }}></div>
@@ -317,8 +320,8 @@ DARK INDUSTRIAL PHONK X FREDDIE GIBBS FLOW. 150 BPM. DISTORTED 808s, GLITCHED HI
                                                 UNLOCK ARCHIVE — 100 CR
                                             </button>
                                             <span className="text-[10px] uppercase tracking-widest text-green-500/80 font-mono flex items-center justify-end gap-2 w-full">
-                                                <span className="line-through text-slate-500">150 CR</span>
-                                                <span>33% BUNDLE DISCOUNT</span>
+                                                <span className="line-through text-slate-500">200 CR</span>
+                                                <span>50% BUNDLE DISCOUNT</span>
                                             </span>
                                         </div>
                                     </div>
