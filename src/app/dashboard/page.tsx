@@ -163,23 +163,35 @@ DARK INDUSTRIAL PHONK X FREDDIE GIBBS FLOW. 150 BPM. DISTORTED 808s, GLITCHED HI
             audioRef.current.pause();
         }
 
+        let fileName = '';
+        const nameUpper = stemName.toUpperCase();
+        if (nameUpper === 'DRUMS') fileName = 'drums_preview.mp3';
+        else if (nameUpper === 'BASS') fileName = 'bass_preview.mp3';
+        else if (nameUpper === 'SYNTHS') fileName = 'synths_preview.mp3';
+        else if (nameUpper === 'INSTRUMENTAL') fileName = 'inst_preview.mp3';
+        else fileName = `${stemName.toLowerCase()}_preview.mp3`;
+
+        const path = `vault/previews/${fileName}`;
+
         try {
             const { getDownloadURL, ref } = await import('firebase/storage');
             const { storage } = await import('@/lib/firebase');
 
-            const path = `vault/previews/${stemName.toUpperCase()}_PREVIEW.mp3`;
+            // Verification Check
             const url = await getDownloadURL(ref(storage, path));
 
             const audio = new Audio(url);
             audioRef.current = audio;
             audio.play();
             setPlayingStem(stemName);
+            setPreviewError(null);
 
             audio.onended = () => {
                 setPlayingStem(null);
             };
         } catch (error) {
-            console.error("Preview failed:", error);
+            console.error(`[TRANSMISSION LOG] Handshake failed for path: ${path}`);
+            console.error("Exact Firebase Error:", error);
             setPreviewError("Preview unavailable. Handshake failed to locate the transmission file.");
         }
     };
