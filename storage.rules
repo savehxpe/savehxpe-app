@@ -1,0 +1,25 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // Default lockdown
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+
+    // Public Previews
+    match /vault/previews/{allFiles=**} {
+      allow read: if true;
+    }
+
+    // Secured Master Assets
+    match /vault/stems/{allFiles=**} {
+      allow read: if request.auth != null;
+    }
+    
+    match /vault/source/{allFiles=**} {
+      allow read: if request.auth != null;
+    }
+    
+  }
+}

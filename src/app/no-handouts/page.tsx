@@ -31,6 +31,8 @@ export default function NoHandouts() {
     const [streak, setStreak] = useState(0);
     const [activeTargets, setActiveTargets] = useState<Target[]>([]);
     const [hitFlash, setHitFlash] = useState(false);
+    const [isProcessing, setIsProcessing] = useState(false);
+    const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
     // Engine Refs
     const requestRef = useRef<number>(0);
@@ -186,20 +188,23 @@ export default function NoHandouts() {
     }, [fireWeapon]);
 
     const handlePlay = async () => {
-        if (!firebaseUser || !userDoc) return;
+        if (!firebaseUser || !userDoc || isProcessing) return;
 
         if (userDoc.credits < 10) {
-            alert('Insufficient credits. 10 CR required to play CASH CALIBER.');
+            setErrorMsg('Insufficient credits. 10 CR required to play CASH CALIBER.');
             return;
         }
+
+        setIsProcessing(true);
+        setErrorMsg(null);
 
         try {
             const userRef = doc(db, 'users', firebaseUser.uid);
             await runTransaction(db, async (transaction) => {
                 const docSnap = await transaction.get(userRef);
-                if (!docSnap.exists()) throw "User does not exist";
+                if (!docSnap.exists()) throw new Error("User does not exist");
                 const currentCredits = docSnap.data().credits || 0;
-                if (currentCredits < 10) throw "Not enough credits";
+                if (currentCredits < 10) throw new Error("Insufficient credits");
                 transaction.update(userRef, { credits: currentCredits - 10 });
             });
 
@@ -215,9 +220,11 @@ export default function NoHandouts() {
 
             setGameState('PLAYING');
 
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error starting game:', error);
-            alert("Secure transaction failed.");
+            setErrorMsg(error?.message || error?.toString() || 'Secure transaction failed due to network lag or insufficient funds.');
+        } finally {
+            setIsProcessing(false);
         }
     };
 
@@ -262,9 +269,10 @@ export default function NoHandouts() {
                                 </div>
                                 <button
                                     onClick={(e) => { e.stopPropagation(); handlePlay(); }}
-                                    className="mt-8 w-full py-4 bg-white text-black font-bold tracking-[0.2em] uppercase transition-all hover:bg-black hover:text-white border border-white"
+                                    disabled={isProcessing}
+                                    className={`mt-8 w-full py-4 font-bold tracking-[0.2em] uppercase transition-all border ${isProcessing ? 'bg-white/50 text-black cursor-not-allowed border-white/50' : 'bg-white text-black hover:bg-black hover:text-white border-white'}`}
                                 >
-                                    Insert Ante
+                                    {isProcessing ? 'PROCESSING...' : 'Insert Ante'}
                                 </button>
                             </div>
 
@@ -425,6 +433,26 @@ export default function NoHandouts() {
                                 <span className="hidden md:block font-mono text-xs uppercase text-white/50 tracking-widest">PRESS [SPACE] TO FIRE</span>
                             </div>
                         )}
+                    </div>
+                )}
+
+                {/* ERROR MODAL */}
+                {errorMsg && (
+                    <div className="absolute inset-0 z-[100] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 text-center animate-in fade-in zoom-in duration-300">
+                        <div className="border border-red-500 bg-black p-8 max-w-md w-full relative overflow-hidden shadow-[0_0_50px_rgba(239,68,68,0.2)]">
+                            <div className="absolute top-0 left-0 w-full h-1 bg-red-500 animate-pulse"></div>
+                            <span className="material-symbols-outlined text-red-500 text-6xl mb-6">warning</span>
+                            <h2 className="text-3xl font-black text-red-500 uppercase tracking-widest mb-4">Signal Interrupted</h2>
+                            <div className="font-mono text-sm text-white/80 mb-8 border border-white/10 bg-white/5 p-4 uppercase">
+                                {errorMsg}
+                            </div>
+                            <button
+                                onClick={() => setErrorMsg(null)}
+                                className="px-8 py-4 bg-red-500 text-black font-bold uppercase tracking-widest hover:bg-red-400 transition-colors w-full shadow-[0_0_20px_rgba(239,68,68,0.4)]"
+                            >
+                                Acknowledge
+                            </button>
+                        </div>
                     </div>
                 )}
             </main>

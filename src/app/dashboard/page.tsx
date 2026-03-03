@@ -20,6 +20,7 @@ export default function Dashboard() {
     const hasStandardAccess = userDoc?.tier.current === 'STANDARD' || userDoc?.tier.current === 'PREMIUM' || (userDoc?.xp.total ?? 0) >= 1000;
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const [playingStem, setPlayingStem] = useState<string | null>(null);
+    const [previewError, setPreviewError] = useState<string | null>(null);
 
     // Cleanup audio on unmount
     useEffect(() => {
@@ -140,9 +141,7 @@ DARK INDUSTRIAL PHONK X FREDDIE GIBBS FLOW. 150 BPM. DISTORTED 808s, GLITCHED HI
             const { getDownloadURL, ref } = await import('firebase/storage');
             const { storage } = await import('@/lib/firebase');
 
-            const path = stemName.toUpperCase() === 'INSTRUMENTAL'
-                ? `vault/previews/${stemName.toUpperCase()}.mp3`
-                : `vault/previews/${stemName.toUpperCase()}.wav`;
+            const path = `vault/previews/${stemName.toUpperCase()}_PREVIEW.mp3`;
             const url = await getDownloadURL(ref(storage, path));
 
             const audio = new Audio(url);
@@ -155,7 +154,7 @@ DARK INDUSTRIAL PHONK X FREDDIE GIBBS FLOW. 150 BPM. DISTORTED 808s, GLITCHED HI
             };
         } catch (error) {
             console.error("Preview failed:", error);
-            alert("Preview unavailable. Stems locked or missing.");
+            setPreviewError("Preview unavailable. Handshake failed to locate the transmission file.");
         }
     };
 
@@ -412,6 +411,27 @@ DARK INDUSTRIAL PHONK X FREDDIE GIBBS FLOW. 150 BPM. DISTORTED 808s, GLITCHED HI
                         <footer className="relative z-10 flex flex-col gap-6 px-10 py-8 text-center border-t border-white/5 bg-black/40 backdrop-blur-sm">
                             <p className="text-slate-500 text-[10px] font-normal leading-normal uppercase tracking-[0.4em]">© 2026 HANDOUT MUSIC DROP</p>
                         </footer>
+
+                        {/* PREVIEW ERROR MODAL */}
+                        {previewError && (
+                            <div className="absolute inset-0 z-[100] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 text-center animate-in fade-in zoom-in duration-300">
+                                <div className="border border-red-500 bg-black p-8 max-w-md w-full relative overflow-hidden shadow-[0_0_50px_rgba(239,68,68,0.2)]">
+                                    <div className="absolute top-0 left-0 w-full h-1 bg-red-500 animate-pulse"></div>
+                                    <span className="material-symbols-outlined text-red-500 text-6xl mb-6">warning</span>
+                                    <h2 className="text-3xl font-black text-red-500 uppercase tracking-widest mb-4">Signal Lost</h2>
+                                    <div className="font-mono text-sm text-white/80 mb-8 border border-white/10 bg-white/5 p-4 uppercase">
+                                        {previewError}
+                                    </div>
+                                    <button
+                                        onClick={() => setPreviewError(null)}
+                                        className="px-8 py-4 bg-red-500 text-black font-bold uppercase tracking-widest hover:bg-red-400 transition-colors w-full shadow-[0_0_20px_rgba(239,68,68,0.4)]"
+                                    >
+                                        Acknowledge
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
                     </main>
                 </div>
             </div>
