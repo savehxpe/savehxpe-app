@@ -47,6 +47,7 @@ export interface UserDocument {
         name?: string;
         rarity?: string;
     }>;
+    unlocked_assets?: string[];
     engagementScore: number;
 }
 

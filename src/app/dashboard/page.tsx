@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
-import { doc, runTransaction } from 'firebase/firestore';
+import { doc, runTransaction, arrayUnion } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 
 export default function Dashboard() {
@@ -18,6 +18,7 @@ export default function Dashboard() {
 
     // Stem Mixer State
     const hasStandardAccess = userDoc?.tier.current === 'STANDARD' || userDoc?.tier.current === 'PREMIUM' || (userDoc?.xp.total ?? 0) >= 1000;
+    const isOwned = (assetId: string) => hasStandardAccess || !!userDoc?.unlocked_assets?.includes(assetId);
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const [playingStem, setPlayingStem] = useState<string | null>(null);
     const [previewError, setPreviewError] = useState<string | null>(null);
@@ -95,11 +96,13 @@ DARK INDUSTRIAL PHONK X FREDDIE GIBBS FLOW. 150 BPM. DISTORTED 808s, GLITCHED HI
     const handleUnlockStem = async (stemName: string, isBundle: boolean = false) => {
         if (!firebaseUser || !userDoc) return;
 
+        const assetId = isBundle ? 'BUNDLE' : stemName.toUpperCase();
         const cost = isBundle ? 100 : 50;
+        const alreadyOwned = userDoc.unlocked_assets?.includes(assetId);
 
-        if (hasStandardAccess && !isBundle) {
+        if (hasStandardAccess || alreadyOwned || (isBundle && alreadyOwned)) {
             // They already have access, just fetch the link directly
-            await fetchDownloadUrl(stemName.toUpperCase());
+            await fetchDownloadUrl(assetId);
             return;
         }
 
@@ -113,16 +116,29 @@ DARK INDUSTRIAL PHONK X FREDDIE GIBBS FLOW. 150 BPM. DISTORTED 808s, GLITCHED HI
             await runTransaction(db, async (transaction) => {
                 const docSnap = await transaction.get(userRef);
                 if (!docSnap.exists()) throw "User does not exist";
-                const currentCredits = docSnap.data().credits || 0;
+                const data = docSnap.data();
+                const currentCredits = data.credits || 0;
                 if (currentCredits < cost) throw "Not enough credits";
-                transaction.update(userRef, { credits: currentCredits - cost });
+
+                const currentAssets = data.unlocked_assets || [];
+                if (currentAssets.includes(assetId)) {
+                    // Already unlocked by another process
+                    return;
+                }
+
+                transaction.update(userRef, {
+                    credits: currentCredits - cost,
+                    unlocked_assets: arrayUnion(assetId)
+                });
             });
 
+            alert("Transmission Verified. Initiating Secure Download.");
             // Immediately open the signed download URL
-            await fetchDownloadUrl(isBundle ? 'BUNDLE' : stemName.toUpperCase());
+            await fetchDownloadUrl(assetId);
 
         } catch (error) {
             console.error('Error unlocking item:', error);
+            alert("Error Processing Transaction.");
         }
     };
 
@@ -282,11 +298,11 @@ DARK INDUSTRIAL PHONK X FREDDIE GIBBS FLOW. 150 BPM. DISTORTED 808s, GLITCHED HI
                                                 <div className="flex flex-col gap-3 w-full">
                                                     <button
                                                         onClick={() => handleUnlockStem(stem.title)}
-                                                        className={`w-full py-3 text-xs font-bold uppercase tracking-[0.15em] transition-colors ${hasStandardAccess ? 'bg-black text-white border border-white hover:bg-white hover:text-black' : 'bg-white text-black hover:bg-slate-200'}`}
+                                                        className={`w-full py-3 text-xs font-bold uppercase tracking-[0.15em] transition-colors ${isOwned(stem.title.toUpperCase()) ? 'bg-black text-white border border-white hover:bg-white hover:text-black' : 'bg-white text-black hover:bg-slate-200'}`}
                                                     >
-                                                        {hasStandardAccess ? 'DOWNLOAD .WAV' : '50 Credits To Unlock'}
+                                                        {isOwned(stem.title.toUpperCase()) ? 'DOWNLOAD .WAV' : '50 Credits To Unlock'}
                                                     </button>
-                                                    {!hasStandardAccess && (
+                                                    {!isOwned(stem.title.toUpperCase()) && (
                                                         <span className="text-[10px] uppercase tracking-widest text-slate-400">or Unlimited Access (Standard Tier)</span>
                                                     )}
                                                 </div>
@@ -314,9 +330,9 @@ DARK INDUSTRIAL PHONK X FREDDIE GIBBS FLOW. 150 BPM. DISTORTED 808s, GLITCHED HI
                                         <div className="flex flex-col md:items-end w-full md:w-auto gap-3">
                                             <button
                                                 onClick={() => handleUnlockStem('BUNDLE', true)}
-                                                className="w-full md:w-72 py-4 text-xs font-bold uppercase tracking-[0.15em] transition-colors bg-white text-black hover:bg-slate-200 text-center"
+                                                className={`w-full md:w-72 py-4 text-xs font-bold uppercase tracking-[0.15em] transition-colors ${isOwned('BUNDLE') ? 'bg-black text-white border border-white hover:bg-white hover:text-black' : 'bg-white text-black hover:bg-slate-200'} text-center`}
                                             >
-                                                UNLOCK ARCHIVE — 100 CR
+                                                {isOwned('BUNDLE') ? 'DOWNLOAD .ZIP' : 'UNLOCK ARCHIVE — 100 CR'}
                                             </button>
                                             <span className="text-[10px] uppercase tracking-widest text-green-500/80 font-mono flex items-center justify-end gap-2 w-full">
                                                 <span className="line-through text-slate-500">200 CR</span>

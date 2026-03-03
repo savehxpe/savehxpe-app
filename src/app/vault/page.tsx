@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
-import { doc, updateDoc, increment } from 'firebase/firestore';
+import { doc, runTransaction, arrayUnion } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 
 export default function VaultExplorer() {
@@ -11,7 +11,7 @@ export default function VaultExplorer() {
     const { userDoc, firebaseUser } = useAuth();
 
     // Simulating access control: if tier is not PREMIUM, show gated view.
-    const isPremium = userDoc?.tier.current === 'PREMIUM' || userDoc?.tier.current === 'STANDARD';
+    const isPremium = userDoc?.tier.current === 'PREMIUM' || userDoc?.tier.current === 'STANDARD' || !!userDoc?.unlocked_assets?.includes('VAULT_ACCESS');
 
     const handleUnlockAttempt = async () => {
         if (!firebaseUser || !userDoc) return;
@@ -22,12 +22,25 @@ export default function VaultExplorer() {
 
         try {
             const userRef = doc(db, 'users', firebaseUser.uid);
-            await updateDoc(userRef, {
-                credits: increment(-50)
+            await runTransaction(db, async (transaction) => {
+                const docSnap = await transaction.get(userRef);
+                if (!docSnap.exists()) throw "User does not exist";
+                const data = docSnap.data();
+                const currentCredits = data.credits || 0;
+                if (currentCredits < 50) throw "Not enough credits";
+
+                const currentAssets = data.unlocked_assets || [];
+                if (currentAssets.includes('VAULT_ACCESS')) return;
+
+                transaction.update(userRef, {
+                    credits: currentCredits - 50,
+                    unlocked_assets: arrayUnion('VAULT_ACCESS')
+                });
             });
-            alert('Unlocked using 50 Credits! (Simulation)');
+            alert('Transmission Verified.');
         } catch (err) {
             console.error(err);
+            alert("Error Processing Transaction.");
         }
     };
 
