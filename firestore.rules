@@ -27,8 +27,8 @@ service cloud.firestore {
                     // PREVENT Stripe ID manipulation
                     && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['stripeCustomerId']);
                     
-      // Prevent client-side document creation (Cloud Functions handle this)
-      allow create: if false;
+      // Allow creation by the owner during first sign-up
+      allow create: if isOwner(userId);
       allow delete: if false;
 
       // Subcollections
