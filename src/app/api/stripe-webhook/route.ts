@@ -140,6 +140,49 @@ export async function POST(req: NextRequest) {
                 break;
             }
 
+            // ── Session Completed (Upgrade to Node Commander) ──
+            case 'checkout.session.completed': {
+                const session = event.data.object as Stripe.Checkout.Session;
+                if (session.mode === 'subscription') {
+                    // Re-fetch to guarantee we have the latest tier (in case subscription.created ran concurrently)
+                    const latestDocSnap = await userRef.get();
+                    const latestTier = latestDocSnap.data()?.tier?.current;
+
+                    if (latestTier === 'STANDARD' || latestTier === 'PREMIUM') {
+                        // Grant 1000 CR + Flag for Toast notification
+                        await userRef.update({
+                            'credits': FieldValue.increment(1000),
+                            'ascensionVerifiedToast': true,
+                            'unlocked_assets': FieldValue.arrayUnion('VAULT_ACCESS', 'BUNDLE')
+                        });
+
+                        // Dispatch Dispatch Email
+                        const { sendNodeCommanderEmail } = await import('@/lib/email');
+                        const email = session.customer_details?.email || latestDocSnap.data()?.email;
+                        if (email) {
+                            await sendNodeCommanderEmail(email);
+                        }
+                    } else {
+                        // Fallback in case of race condition: force update tier + trigger
+                        await userRef.update({
+                            'tier.current': 'STANDARD',
+                            'tier.previous': latestDocSnap.data()?.tier?.current || 'FREE',
+                            'tier.updatedAt': FieldValue.serverTimestamp(),
+                            'credits': FieldValue.increment(1000),
+                            'ascensionVerifiedToast': true,
+                            'unlocked_assets': FieldValue.arrayUnion('VAULT_ACCESS', 'BUNDLE')
+                        });
+
+                        const { sendNodeCommanderEmail } = await import('@/lib/email');
+                        const email = session.customer_details?.email || latestDocSnap.data()?.email;
+                        if (email) {
+                            await sendNodeCommanderEmail(email);
+                        }
+                    }
+                }
+                break;
+            }
+
             default:
                 // Unhandled event type
                 console.log(`Unhandled event type: ${event.type}`);

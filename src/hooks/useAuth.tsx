@@ -48,6 +48,7 @@ export interface UserDocument {
         rarity?: string;
     }>;
     unlocked_assets?: string[];
+    ascensionVerifiedToast?: boolean;
     engagementScore: number;
 }
 

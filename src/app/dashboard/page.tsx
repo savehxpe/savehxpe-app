@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
-import { doc, runTransaction, arrayUnion } from 'firebase/firestore';
+import { doc, runTransaction, arrayUnion, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 
 export default function Dashboard() {
@@ -15,6 +15,16 @@ export default function Dashboard() {
     const [generatedPrompt, setGeneratedPrompt] = useState<string | null>(null);
     const [isGenerating, setIsGenerating] = useState(false);
     const [justDeducted, setJustDeducted] = useState(false);
+    const [showAscensionToast, setShowAscensionToast] = useState(false);
+
+    useEffect(() => {
+        if (userDoc?.ascensionVerifiedToast && firebaseUser) {
+            setShowAscensionToast(true);
+            const userRef = doc(db, 'users', firebaseUser.uid);
+            updateDoc(userRef, { ascensionVerifiedToast: false }).catch(console.error);
+            setTimeout(() => setShowAscensionToast(false), 6000);
+        }
+    }, [userDoc?.ascensionVerifiedToast, firebaseUser]);
 
     // Stem Mixer State
     const hasStandardAccess = userDoc?.tier.current === 'STANDARD' || userDoc?.tier.current === 'PREMIUM' || (userDoc?.xp.total ?? 0) >= 1000;
@@ -248,8 +258,19 @@ DARK INDUSTRIAL PHONK X FREDDIE GIBBS FLOW. 150 BPM. DISTORTED 808s, GLITCHED HI
                             </button>
                             <button onClick={() => router.push('/ascension')} className="flex w-full items-center gap-3 px-4 py-3 text-slate-400 hover:text-white hover:bg-white/5 rounded transition-colors uppercase tracking-wider text-sm mt-4 border-t border-white/10 pt-4">
                                 <span className="material-symbols-outlined text-lg text-yellow-500">star</span>
-                                Ascension Portal
+                                Ascension
                             </button>
+
+                            {/* Ascension Verified Toast */}
+                            {showAscensionToast && (
+                                <div className="mt-8 p-4 bg-yellow-500/10 border border-yellow-500/50 rounded-md animate-[flash_ease-in-out_6s]">
+                                    <div className="flex items-center gap-3 mb-2">
+                                        <span className="material-symbols-outlined text-yellow-500 text-xl">verified</span>
+                                        <h3 className="text-yellow-500 font-display uppercase tracking-widest text-sm font-bold">Ascension Verified</h3>
+                                    </div>
+                                    <p className="text-xs text-yellow-500/80 font-mono">NODE COMMANDER STATUS ACTIVE. YOU NOW EARN 1.5X XP.</p>
+                                </div>
+                            )}
                         </nav>
                         <div className="p-6 border-t border-white/10 mt-auto">
                             <button onClick={() => { logout(); router.push('/'); }} className="w-full py-3 px-4 border border-white/20 hover:border-white text-xs uppercase tracking-[0.2em] transition-colors rounded">
