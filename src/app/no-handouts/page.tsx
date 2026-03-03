@@ -221,8 +221,15 @@ export default function NoHandouts() {
             try {
                 const { getDownloadURL, ref } = await import('firebase/storage');
                 const { storage } = await import('@/lib/firebase');
+
+                // The Handshake Timeout (15 seconds for latency)
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 15000);
+
                 const url = await getDownloadURL(ref(storage, "vault/stems/HANDOUT_MASTER.wav"));
-                const response = await fetch(url);
+                const response = await fetch(url, { signal: controller.signal });
+
+                clearTimeout(timeoutId);
 
                 if (!response.ok) {
                     throw new Error(`ASSET 404: HTTP ${response.status}`);
@@ -230,8 +237,18 @@ export default function NoHandouts() {
 
                 const arrayBuffer = await response.arrayBuffer();
                 audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-            } catch (error) {
+            } catch (error: any) {
                 console.error("AudioBuffer Error:", error);
+
+                // Log EXACT Firebase or Network Error Code
+                if (error?.code) {
+                    console.error("Exact Firebase Error Code [TRANSMISSION LOG]:", error.code);
+                    throw new Error(`ASSET PERMISSION DENIED: ${error.code}`);
+                }
+                if (error?.name === 'AbortError') {
+                    throw new Error("ASSET TIMEOUT: Connection handshake exceeded 15 seconds. Signal Lost.");
+                }
+
                 throw new Error("ASSET 404: HANDOUT_MASTER.wav missing or corrupted.");
             }
 
