@@ -13,10 +13,17 @@ export default function VaultExplorer() {
     // Simulating access control: if tier is not PREMIUM, show gated view.
     const isPremium = userDoc?.tier.current === 'PREMIUM' || userDoc?.tier.current === 'STANDARD' || !!userDoc?.unlocked_assets?.includes('VAULT_ACCESS');
 
+    const [systemMessage, setSystemMessage] = useState<{ type: 'error' | 'success', text: string } | null>(null);
+
+    const showMessage = (type: 'error' | 'success', text: string) => {
+        setSystemMessage({ type, text });
+        setTimeout(() => setSystemMessage(null), 5000);
+    };
+
     const handleUnlockAttempt = async () => {
         if (!firebaseUser || !userDoc) return;
         if (userDoc.credits < 50) {
-            alert('Insufficient credits to unlock.');
+            showMessage('error', 'LEDGER FAILED: Insufficient credits to unlock.');
             return;
         }
 
@@ -37,12 +44,107 @@ export default function VaultExplorer() {
                     unlocked_assets: arrayUnion('VAULT_ACCESS')
                 });
             });
-            alert('Transmission Verified.');
+            showMessage('success', 'TRANSMISSION VERIFIED: Vault Stream Unsealed.');
         } catch (err) {
             console.error(err);
-            alert("Error Processing Transaction.");
+            showMessage('error', 'LEDGER FAILED: Error Processing Transaction.');
         }
     };
+
+    const handleAssetAction = async (stemId: string) => {
+        if (!firebaseUser || !userDoc) return;
+        setSystemMessage(null);
+
+        const isOwned = isPremium || userDoc.unlocked_assets?.includes(stemId);
+
+        if (isOwned) {
+            // DOWNLOAD logic
+            try {
+                const token = await firebaseUser.getIdToken();
+                const res = await fetch('/api/get-download', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ item: stemId })
+                });
+
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    const errorMsg = data.error || (res.status === 404 ? 'File Not Found' : 'Unauthorized');
+                    showMessage('error', `TRANSMISSION FAILED [${res.status}]: ${errorMsg}`);
+                    return;
+                }
+
+                const data = await res.json();
+                if (data.url) {
+                    window.location.href = data.url;
+                } else {
+                    showMessage('error', `TRANSMISSION FAILED [500]: Invalid Secure Link`);
+                }
+            } catch (err) {
+                console.error(err);
+                showMessage('error', "TRANSMISSION FAILED [500]: Network Error");
+            }
+        } else {
+            // UNLOCK logic
+            if (userDoc.credits < 50) {
+                showMessage('error', 'LEDGER FAILED: Insufficient Credits (50 CR Required)');
+                return;
+            }
+
+            try {
+                const userRef = doc(db, 'users', firebaseUser.uid);
+                await runTransaction(db, async (transaction) => {
+                    const docSnap = await transaction.get(userRef);
+                    if (!docSnap.exists()) throw "User does not exist";
+                    const data = docSnap.data();
+                    const currentCredits = data.credits || 0;
+                    if (currentCredits < 50) throw "Not enough credits";
+
+                    const currentAssets = data.unlocked_assets || [];
+                    if (currentAssets.includes(stemId)) return;
+
+                    transaction.update(userRef, {
+                        credits: currentCredits - 50,
+                        unlocked_assets: arrayUnion(stemId)
+                    });
+                });
+                showMessage('success', 'TRANSMISSION VERIFIED: Asset Unlocked.');
+            } catch (err) {
+                console.error(err);
+                showMessage('error', "LEDGER FAILED: Error Processing Transaction.");
+            }
+        }
+    };
+
+    const VAULT_ITEMS = [
+        {
+            id: 'BUNDLE',
+            title: 'Handout Remix\nStems',
+            type: 'Stems',
+            icon: 'piano',
+            description: 'Included: Drums, Bass, Synth, Vox',
+            ext: '.ZIP'
+        },
+        {
+            id: 'INSTRUMENTAL',
+            title: 'Instrumental\nMaster',
+            type: 'Master',
+            icon: 'album',
+            description: 'Format: WAV (24bit / 48kHz)',
+            ext: '.WAV'
+        },
+        {
+            id: 'VIDEO',
+            title: 'Studio Sessions\nVideo',
+            type: 'Video',
+            icon: 'smart_display',
+            description: 'Duration: 14:02 // 4K',
+            ext: '.MP4'
+        }
+    ];
 
     return (
         <div className="bg-white text-black font-display min-h-screen flex flex-col overflow-x-hidden selection:bg-black selection:text-white relative">
@@ -62,6 +164,11 @@ export default function VaultExplorer() {
                         </span>
                     </div>
                 </div>
+                {systemMessage && (
+                    <div className={`absolute left-1/2 -translate-x-1/2 px-4 py-2 border-2 border-black font-mono text-xs uppercase tracking-widest font-bold z-50 ${systemMessage.type === 'error' ? 'bg-red-500 text-white' : 'bg-green-500 text-black'}`}>
+                        {systemMessage.text}
+                    </div>
+                )}
                 <div className="flex items-center gap-4">
                     <div className="flex flex-col items-end">
                         <span className="font-mono text-[10px] uppercase tracking-widest text-black/60">Credit Ledger</span>
@@ -144,64 +251,49 @@ export default function VaultExplorer() {
                 </section>
 
                 <section className="flex flex-col gap-6 relative">
-                    {!isPremium && (
-                        <div className="absolute inset-0 z-30 locked-vault-blur pointer-events-none rounded-lg"></div>
-                    )}
                     <div className="flex justify-between items-end border-b border-black pb-2">
                         <h3 className="text-2xl font-bold uppercase tracking-tight">Unlocked Assets</h3>
                         <div className="font-mono text-xs uppercase tracking-widest text-black/60">3 Items Available</div>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        <div className="group relative bg-white border border-black p-4 flex flex-col gap-4 hover:shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] transition-shadow duration-300">
-                            <div className="absolute top-2 right-2 z-10 bg-black text-white px-2 py-1 font-mono text-[10px] uppercase">Stems</div>
-                            <div className="aspect-video bg-gray-100 relative overflow-hidden flex items-center justify-center border border-black/10">
-                                <span className="material-symbols-outlined text-6xl text-black/20 group-hover:text-black transition-colors duration-500">piano</span>
-                                <div className="absolute inset-0 bg-gradient-to-t from-black/10 to-transparent"></div>
-                            </div>
-                            <div className="flex flex-col gap-1">
-                                <h4 className="font-bold text-xl uppercase leading-tight">Handout Remix<br />Stems</h4>
-                                <p className="font-mono text-xs text-black/60 uppercase">Included: Drums, Bass, Synth, Vox</p>
-                            </div>
-                            <button className="mt-auto w-full bg-black text-white h-12 font-bold uppercase tracking-widest hover:bg-white hover:text-black hover:border-2 hover:border-black transition-all flex items-center justify-center gap-2">
-                                <span className="material-symbols-outlined text-lg">download</span> Download
-                            </button>
-                        </div>
-
-                        <div className="group relative bg-white border border-black p-4 flex flex-col gap-4 hover:shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] transition-shadow duration-300">
-                            <div className="absolute top-2 right-2 z-10 bg-black text-white px-2 py-1 font-mono text-[10px] uppercase">Master</div>
-                            <div className="aspect-video bg-gray-100 relative overflow-hidden flex items-center justify-center border border-black/10">
-                                <span className="material-symbols-outlined text-6xl text-black/20 group-hover:text-black transition-colors duration-500">album</span>
-                                <div className="absolute inset-0 bg-gradient-to-t from-black/10 to-transparent"></div>
-                            </div>
-                            <div className="flex flex-col gap-1">
-                                <h4 className="font-bold text-xl uppercase leading-tight">Instrumental<br />Master</h4>
-                                <p className="font-mono text-xs text-black/60 uppercase">Format: WAV (24bit / 48kHz)</p>
-                            </div>
-                            <button className="mt-auto w-full bg-black text-white h-12 font-bold uppercase tracking-widest hover:bg-white hover:text-black hover:border-2 hover:border-black transition-all flex items-center justify-center gap-2">
-                                <span className="material-symbols-outlined text-lg">download</span> Download
-                            </button>
-                        </div>
-
-                        <div className="group relative bg-white border border-black p-4 flex flex-col gap-4 hover:shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] transition-shadow duration-300">
-                            <div className="absolute top-2 right-2 z-10 bg-black text-white px-2 py-1 font-mono text-[10px] uppercase">Video</div>
-                            <div className="aspect-video bg-gray-100 relative overflow-hidden flex items-center justify-center border border-black/10">
-                                <span className="material-symbols-outlined text-6xl text-black/20 group-hover:text-black transition-colors duration-500">smart_display</span>
-                                <div className="absolute inset-0 bg-gradient-to-t from-black/10 to-transparent"></div>
-                                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/5">
-                                    <div className="w-12 h-12 bg-black rounded-full flex items-center justify-center text-white">
-                                        <span className="material-symbols-outlined">play_arrow</span>
+                        {VAULT_ITEMS.map((item) => {
+                            const isOwned = isPremium || userDoc?.unlocked_assets?.includes(item.id);
+                            return (
+                                <div key={item.id} className="group relative bg-white border border-black p-4 flex flex-col gap-4 hover:shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] transition-shadow duration-300">
+                                    <div className="absolute top-2 right-2 z-10 bg-black text-white px-2 py-1 font-mono text-[10px] uppercase">{item.type}</div>
+                                    <div className="aspect-video bg-gray-100 relative overflow-hidden flex items-center justify-center border border-black/10">
+                                        <span className="material-symbols-outlined text-6xl text-black/20 group-hover:text-black transition-colors duration-500">{item.icon}</span>
+                                        <div className="absolute inset-0 bg-gradient-to-t from-black/10 to-transparent"></div>
+                                        {item.id === 'VIDEO' && (
+                                            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/5">
+                                                <div className="w-12 h-12 bg-black rounded-full flex items-center justify-center text-white">
+                                                    <span className="material-symbols-outlined">play_arrow</span>
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
+                                    <div className="flex flex-col gap-1">
+                                        <h4 className="font-bold text-xl uppercase leading-tight whitespace-pre-line">{item.title}</h4>
+                                        <p className="font-mono text-xs text-black/60 uppercase">{item.description}</p>
+                                    </div>
+                                    <button
+                                        onClick={() => handleAssetAction(item.id)}
+                                        className="mt-auto w-full border-2 border-black text-black bg-white hover:bg-black hover:text-white h-12 font-bold uppercase tracking-widest transition-all flex items-center justify-center gap-2"
+                                    >
+                                        {isOwned ? (
+                                            <>
+                                                <span className="material-symbols-outlined text-lg">download</span> DOWNLOAD {item.ext}
+                                            </>
+                                        ) : (
+                                            <>
+                                                <span className="material-symbols-outlined text-lg">lock_open</span> UNLOCK (50 CR)
+                                            </>
+                                        )}
+                                    </button>
                                 </div>
-                            </div>
-                            <div className="flex flex-col gap-1">
-                                <h4 className="font-bold text-xl uppercase leading-tight">Studio Sessions<br />Video</h4>
-                                <p className="font-mono text-xs text-black/60 uppercase">Duration: 14:02 // 4K</p>
-                            </div>
-                            <button className="mt-auto w-full border-2 border-black text-black h-12 font-bold uppercase tracking-widest hover:bg-black hover:text-white transition-all flex items-center justify-center gap-2">
-                                <span className="material-symbols-outlined text-lg">visibility</span> Watch
-                            </button>
-                        </div>
+                            );
+                        })}
                     </div>
                 </section>
             </main>

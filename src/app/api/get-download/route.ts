@@ -38,6 +38,7 @@ export async function POST(req: Request) {
         const [url] = await file.getSignedUrl({
             action: 'read',
             expires: Date.now() + 5 * 60 * 1000, // 5 minutes
+            responseDisposition: 'attachment'
         });
 
         return NextResponse.json({ url });
