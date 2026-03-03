@@ -1,0 +1,61 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper Functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    match /users/{userId} {
+      // Allow user to read their own data
+      allow read: if isOwner(userId);
+      
+      // Allow user to update specific fields ONLY
+      allow update: if isOwner(userId)
+                    // PREVENT tier editing
+                    && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['tier'])
+                    // PREVENT xp inflation
+                    && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['xp'])
+                    // PREVENT trial manipulation
+                    && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['trialEndsAt'])
+                    // PREVENT manual collectible insertion
+                    && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['collectibles'])
+                    // PREVENT Stripe ID manipulation
+                    && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['stripeCustomerId']);
+                    
+      // Prevent client-side document creation (Cloud Functions handle this)
+      allow create: if false;
+      allow delete: if false;
+
+      // Subcollections
+      match /transactions/{transactionId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      match /analytics/{analyticsId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+    }
+    
+    match /system_config/{configId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /stripe_webhooks_deadletter/{docId} {
+      allow read: if false;
+      allow write: if false;
+    }
+
+    match /leaderboards/{boardId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+  }
+}
