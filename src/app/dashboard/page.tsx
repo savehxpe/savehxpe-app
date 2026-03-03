@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { doc, runTransaction } from 'firebase/firestore';
@@ -18,6 +18,18 @@ export default function Dashboard() {
 
     // Stem Mixer State
     const hasStandardAccess = userDoc?.tier.current === 'STANDARD' || userDoc?.tier.current === 'PREMIUM' || (userDoc?.xp.total ?? 0) >= 1000;
+    const audioRef = useRef<HTMLAudioElement | null>(null);
+    const [playingStem, setPlayingStem] = useState<string | null>(null);
+
+    // Cleanup audio on unmount
+    useEffect(() => {
+        return () => {
+            if (audioRef.current) {
+                audioRef.current.pause();
+                audioRef.current = null;
+            }
+        };
+    }, []);
 
     const handleGenerate = async () => {
         if (!firebaseUser || !userDoc || !promptInput.trim()) return;
@@ -56,16 +68,42 @@ DARK INDUSTRIAL PHONK X FREDDIE GIBBS FLOW. 150 BPM. DISTORTED 808s, GLITCHED HI
         }
     };
 
-    const handleUnlockStem = async (stemName: string) => {
+    const fetchDownloadUrl = async (itemCode: string) => {
+        try {
+            const token = await firebaseUser!.getIdToken();
+            const res = await fetch('/api/get-download', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ item: itemCode })
+            });
+            const data = await res.json();
+            if (data.url) {
+                window.open(data.url, '_blank');
+            } else {
+                alert("Failed to secure download link.");
+            }
+        } catch (err) {
+            console.error('Download error:', err);
+            alert("Secure transmission failed.");
+        }
+    };
+
+    const handleUnlockStem = async (stemName: string, isBundle: boolean = false) => {
         if (!firebaseUser || !userDoc) return;
 
-        if (hasStandardAccess) {
-            alert(`You already have access to ${stemName} via your Tier/XP!`);
+        const cost = isBundle ? 100 : 50;
+
+        if (hasStandardAccess && !isBundle) {
+            // They already have access, just fetch the link directly
+            await fetchDownloadUrl(stemName.toUpperCase());
             return;
         }
 
-        if (userDoc.credits < 50) {
-            alert('Insufficient credits. 50 CR required to unlock this stem.');
+        if (userDoc.credits < cost) {
+            alert(`Insufficient credits. ${cost} CR required.`);
             return;
         }
 
@@ -75,12 +113,47 @@ DARK INDUSTRIAL PHONK X FREDDIE GIBBS FLOW. 150 BPM. DISTORTED 808s, GLITCHED HI
                 const docSnap = await transaction.get(userRef);
                 if (!docSnap.exists()) throw "User does not exist";
                 const currentCredits = docSnap.data().credits || 0;
-                if (currentCredits < 50) throw "Not enough credits";
-                transaction.update(userRef, { credits: currentCredits - 50 });
+                if (currentCredits < cost) throw "Not enough credits";
+                transaction.update(userRef, { credits: currentCredits - cost });
             });
-            alert(`Unlocked ${stemName} for 50 Credits!`);
+
+            // Immediately open the signed download URL
+            await fetchDownloadUrl(isBundle ? 'BUNDLE' : stemName.toUpperCase());
+
         } catch (error) {
-            console.error('Error unlocking stem:', error);
+            console.error('Error unlocking item:', error);
+        }
+    };
+
+    const handlePlayPreview = async (stemName: string) => {
+        if (playingStem === stemName) {
+            audioRef.current?.pause();
+            setPlayingStem(null);
+            return;
+        }
+
+        if (audioRef.current) {
+            audioRef.current.pause();
+        }
+
+        try {
+            const { getDownloadURL, ref } = await import('firebase/storage');
+            const { storage } = await import('@/lib/firebase');
+
+            const path = `vault/previews/${stemName.toUpperCase()}.wav`;
+            const url = await getDownloadURL(ref(storage, path));
+
+            const audio = new Audio(url);
+            audioRef.current = audio;
+            audio.play();
+            setPlayingStem(stemName);
+
+            audio.onended = () => {
+                setPlayingStem(null);
+            };
+        } catch (error) {
+            console.error("Preview failed:", error);
+            alert("Preview unavailable. Stems locked or missing.");
         }
     };
 
@@ -207,20 +280,48 @@ DARK INDUSTRIAL PHONK X FREDDIE GIBBS FLOW. 150 BPM. DISTORTED 808s, GLITCHED HI
                                                 <div className="flex flex-col gap-3 w-full">
                                                     <button
                                                         onClick={() => handleUnlockStem(stem.title)}
-                                                        className={`w-full py-3 text-xs font-bold uppercase tracking-[0.15em] transition-colors ${hasStandardAccess ? 'bg-black text-white border border-white' : 'bg-white text-black hover:bg-slate-200'}`}
+                                                        className={`w-full py-3 text-xs font-bold uppercase tracking-[0.15em] transition-colors ${hasStandardAccess ? 'bg-black text-white border border-white hover:bg-white hover:text-black' : 'bg-white text-black hover:bg-slate-200'}`}
                                                     >
-                                                        {hasStandardAccess ? 'UNLOCKED / PLAY' : '50 Credits To Unlock'}
+                                                        {hasStandardAccess ? 'DOWNLOAD .WAV' : '50 Credits To Unlock'}
                                                     </button>
                                                     {!hasStandardAccess && (
                                                         <span className="text-[10px] uppercase tracking-widest text-slate-400">or Unlimited Access (Standard Tier)</span>
                                                     )}
                                                 </div>
                                             </div>
-                                            <button className="absolute top-4 right-4 z-20 size-10 rounded-full bg-black/60 border border-white/20 flex items-center justify-center hover:bg-white hover:text-black transition-all group-hover:scale-110">
-                                                <span className="material-symbols-outlined text-xl">play_arrow</span>
+                                            <button
+                                                onClick={() => handlePlayPreview(stem.title)}
+                                                className={`absolute top-4 right-4 z-20 size-10 rounded-full border border-white/20 flex items-center justify-center transition-all group-hover:scale-110 ${playingStem === stem.title ? 'bg-white text-black' : 'bg-black/60 text-white hover:bg-white hover:text-black'}`}
+                                            >
+                                                <span className="material-symbols-outlined text-xl">
+                                                    {playingStem === stem.title ? 'stop' : 'play_arrow'}
+                                                </span>
                                             </button>
                                         </div>
                                     ))}
+                                </div>
+
+                                {/* Handout Bundle Card */}
+                                <div className="max-w-6xl mx-auto mt-8 relative overflow-hidden rounded-lg border border-white/10 bg-black/50 p-6 md:p-10 transition-all duration-300 hover:border-white/30 group">
+                                    <div className="absolute inset-0 w-full h-full bg-cover bg-center opacity-20 blur-[10px] grayscale" style={{ backgroundImage: "url('https://lh3.googleusercontent.com/aida-public/AB6AXuD9LC0I08unnfrnQSzMPqY0--dn0V5HdDMRKNJ9le1Ixuoe1Wb28SGIYrQ5yUPZKWQKdas6Qo_qa2lEwHVk3QAG2Mg1iIZTCJTuP4y6HLyBo1Or-dIgMqWxiJTCUvgWbvLtVHEbD4FF0kt1TX-ZV59-GL8Kb7DVppn_HLLlhyWlNDnzivKknCO8z7JdyceB-plJbHz015GKOSl0OiG3l5lFf51vBkcoH9edkQKy00cQUhileEzO1ebX5pSVX9bLMsuyVpTQGPjq09Y')" }}></div>
+                                    <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-6">
+                                        <div>
+                                            <h3 className="text-2xl md:text-3xl font-bold uppercase tracking-widest text-white">THE HANDOUT ARCHIVE <span className="text-green-500 font-mono text-sm tracking-tighter align-top ml-2">[ ALL STEMS + EXTRAS ]</span></h3>
+                                            <p className="text-xs text-slate-400 font-mono tracking-wider mt-2">DOWNLOAD THE ENTIRE VAULT PROJECT FILE (.ZIP)</p>
+                                        </div>
+                                        <div className="flex flex-col md:items-end w-full md:w-auto gap-3">
+                                            <button
+                                                onClick={() => handleUnlockStem('BUNDLE', true)}
+                                                className="w-full md:w-72 py-4 text-xs font-bold uppercase tracking-[0.15em] transition-colors bg-white text-black hover:bg-slate-200 text-center"
+                                            >
+                                                UNLOCK ARCHIVE — 100 CR
+                                            </button>
+                                            <span className="text-[10px] uppercase tracking-widest text-green-500/80 font-mono flex items-center justify-end gap-2 w-full">
+                                                <span className="line-through text-slate-500">150 CR</span>
+                                                <span>33% BUNDLE DISCOUNT</span>
+                                            </span>
+                                        </div>
+                                    </div>
                                 </div>
                             </section>
 
