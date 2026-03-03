@@ -10,6 +10,8 @@ import { Instances, Instance } from '@react-three/drei';
 import * as THREE from 'three';
 import SystemAlert from '@/components/SystemAlert';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
+import html2canvas from 'html2canvas';
+import { QRCodeSVG } from 'qrcode.react';
 
 // --- CONSTANTS ---
 const FALL_DURATION_MS = 2000;
@@ -66,6 +68,8 @@ export default function ArcadeMissionSector() {
     const [isProcessing, setIsProcessing] = useState(false);
     const [rewardModal, setRewardModal] = useState<boolean>(false);
     const [syncBonusModal, setSyncBonusModal] = useState<boolean>(false);
+    const [isBroadcasting, setIsBroadcasting] = useState(false);
+    const shareCardRef = useRef<HTMLDivElement>(null);
 
     // Engine States
     const [score, setScore] = useState(0);
@@ -164,6 +168,36 @@ export default function ArcadeMissionSector() {
     const handleMiss = () => {
         setStreak(0);
         setTelemetry(prev => ({ ...prev, syncRate: "LOST" }));
+    };
+
+    const handleBroadcast = async () => {
+        if (!shareCardRef.current) return;
+        setIsBroadcasting(true);
+        try {
+            const canvas = await html2canvas(shareCardRef.current, { backgroundColor: '#000000', scale: 2 });
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+
+            const response = await fetch(dataUrl);
+            const blob = await response.blob();
+            const file = new File([blob], 'outworld_stats.jpg', { type: 'image/jpeg' });
+
+            if (navigator.share) {
+                await navigator.share({
+                    title: 'Node Commander Broadcast',
+                    text: `My Final Score: ${score} in FIELD MODE. Join my network.`,
+                    files: [file]
+                });
+            } else {
+                const link = document.createElement('a');
+                link.download = 'outworld_stats.jpg';
+                link.href = dataUrl;
+                link.click();
+            }
+        } catch (e) {
+            console.error('Broadcast failed:', e);
+        } finally {
+            setIsBroadcasting(false);
+        }
     };
 
     const gameLoop = useCallback(() => {
@@ -631,9 +665,46 @@ export default function ArcadeMissionSector() {
                             </div>
                         </div>
 
-                        <button onClick={() => setGameState('DASHBOARD')} className="px-8 py-4 bg-transparent border border-white/30 text-white font-bold uppercase tracking-widest hover:bg-white hover:text-black transition-all">
-                            RETURN TO DASHBOARD
-                        </button>
+                        {/* OFF-SCREEN SHARE CARD TARGET */}
+                        <div className="absolute top-[-9999px] left-[-9999px]">
+                            <div ref={shareCardRef} className="w-[400px] h-[600px] bg-[#050505] p-8 border-4 border-white flex flex-col items-center justify-center text-center font-display" style={{ fontFamily: "Inter, monospace" }}>
+                                <span className="material-symbols-outlined text-white text-5xl mb-4">terminal</span>
+                                <h1 className="text-4xl font-black uppercase text-white tracking-widest mb-1">FIELD MODE</h1>
+                                <p className="font-mono text-white/50 mb-8 uppercase tracking-widest text-xs border-b border-white/20 pb-4 w-full">Node Commander Broadcast</p>
+
+                                <div className="w-full border border-white/30 bg-black mb-8 flex flex-col items-center p-4">
+                                    <div className="flex justify-between w-full p-2 border-b border-white/10">
+                                        <span className="font-mono text-white/50 uppercase text-[10px] tracking-widest">RANK</span>
+                                        <span className={`font-mono font-bold uppercase text-[10px] tracking-widest ${userDoc?.tier?.current === 'STANDARD' ? 'text-yellow-500' : 'text-slate-400'}`}>
+                                            {userDoc?.tier?.current === 'STANDARD' ? 'Gold Commander' : 'Grey Commander'}
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between w-full p-2 border-b border-white/10">
+                                        <span className="font-mono text-white/50 uppercase text-[10px] tracking-widest">FINAL SCORE</span>
+                                        <span className="font-mono text-white font-bold text-[10px] tracking-widest">{score}</span>
+                                    </div>
+                                    <div className="flex justify-between w-full p-2">
+                                        <span className="font-mono text-white/50 uppercase text-[10px] tracking-widest">MODE</span>
+                                        <span className="font-mono text-white font-bold text-[10px] tracking-widest">{mode}</span>
+                                    </div>
+                                </div>
+
+                                <div className="bg-white p-3 shadow-[0_0_30px_rgba(255,255,255,0.2)]">
+                                    <QRCodeSVG value={`https://savehxpe.com/gateway?ref=${userDoc?.inviteCode || 'null'}`} size={120} />
+                                </div>
+                                <p className="font-mono text-[9px] text-white/40 mt-6 tracking-[0.3em] uppercase">SCAN TO JOIN SECURE NETWORK</p>
+                            </div>
+                        </div>
+
+                        <div className="flex flex-col gap-4 w-full max-w-sm">
+                            <button onClick={handleBroadcast} disabled={isBroadcasting} className="w-full px-8 py-4 bg-white text-black font-bold uppercase tracking-widest hover:bg-slate-200 transition-all">
+                                {isBroadcasting ? 'GENERATING SIGNAL...' : 'BROADCAST RESULTS'}
+                            </button>
+
+                            <button onClick={() => setGameState('DASHBOARD')} className="w-full px-8 py-4 bg-transparent border border-white/30 text-white font-bold uppercase tracking-widest hover:bg-white hover:text-black transition-all">
+                                RETURN TO COMMAND
+                            </button>
+                        </div>
                     </div>
                 )}
             </main>

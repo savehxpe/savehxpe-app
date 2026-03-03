@@ -50,6 +50,8 @@ export interface UserDocument {
     unlocked_assets?: string[];
     ascensionVerifiedToast?: boolean;
     engagementScore: number;
+    inviteCode?: string;
+    referral_count?: number;
 }
 
 interface AuthContextType {
