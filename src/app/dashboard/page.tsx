@@ -31,6 +31,7 @@ export default function Dashboard() {
     const isOwned = (assetId: string) => hasStandardAccess || !!userDoc?.unlocked_assets?.includes(assetId);
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const [playingStem, setPlayingStem] = useState<string | null>(null);
+    const [previewLoading, setPreviewLoading] = useState<string | null>(null);
     const [previewError, setPreviewError] = useState<string | null>(null);
 
     // Cleanup audio on unmount
@@ -153,7 +154,7 @@ DARK INDUSTRIAL PHONK X FREDDIE GIBBS FLOW. 150 BPM. DISTORTED 808s, GLITCHED HI
     };
 
     const handlePlayPreview = async (stemName: string) => {
-        if (playingStem === stemName) {
+        if (playingStem === stemName && !previewLoading) {
             audioRef.current?.pause();
             setPlayingStem(null);
             return;
@@ -163,36 +164,57 @@ DARK INDUSTRIAL PHONK X FREDDIE GIBBS FLOW. 150 BPM. DISTORTED 808s, GLITCHED HI
             audioRef.current.pause();
         }
 
-        let fileName = '';
-        const nameUpper = stemName.toUpperCase();
-        if (nameUpper === 'DRUMS') fileName = 'drums_preview.mp3';
-        else if (nameUpper === 'BASS') fileName = 'bass_preview.mp3';
-        else if (nameUpper === 'SYNTHS') fileName = 'synths_preview.mp3';
-        else if (nameUpper === 'INSTRUMENTAL') fileName = 'inst_preview.mp3';
-        else fileName = `${stemName.toLowerCase()}_preview.mp3`;
+        setPreviewLoading(stemName);
+        setPreviewError(null);
 
-        const path = `vault/previews/${fileName}`;
+        let baseFileName = '';
+        const nameUpper = stemName.toUpperCase();
+        if (nameUpper === 'DRUMS') baseFileName = 'drums_preview';
+        else if (nameUpper === 'BASS') baseFileName = 'bass_preview';
+        else if (nameUpper === 'SYNTHS') baseFileName = 'synths_preview';
+        else if (nameUpper === 'INSTRUMENTAL') baseFileName = 'inst_preview';
+        else baseFileName = `${stemName.toLowerCase()}_preview`;
 
         try {
             const { getDownloadURL, ref } = await import('firebase/storage');
             const { storage } = await import('@/lib/firebase');
 
-            // Verification Check
-            const url = await getDownloadURL(ref(storage, path));
+            const tryPath = async (ext: string) => {
+                const fullPath = `vault/previews/${baseFileName}${ext}`;
+                try {
+                    const url = await getDownloadURL(ref(storage, fullPath));
+                    console.log(`[TRANSMISSION LOG] Verified Path: ${fullPath} -> ${url.split('?')[0]}`);
+                    return url;
+                } catch (e) {
+                    console.log(`[TRANSMISSION LOG] Checked ${fullPath}, not found.`);
+                    return null;
+                }
+            };
+
+            // Pathfinder loop
+            let url = await tryPath('.mp3');
+            if (!url) url = await tryPath('.wav');
+            if (!url) url = await tryPath('.WAV');
+            if (!url) url = await tryPath('.MP3');
+
+            if (!url) {
+                throw new Error("Handshake failed. File does not exist with any valid extension.");
+            }
 
             const audio = new Audio(url);
             audioRef.current = audio;
             audio.play();
             setPlayingStem(stemName);
-            setPreviewError(null);
+            setPreviewLoading(null);
 
             audio.onended = () => {
                 setPlayingStem(null);
             };
         } catch (error) {
-            console.error(`[TRANSMISSION LOG] Handshake failed for path: ${path}`);
-            console.error("Exact Firebase Error:", error);
+            console.error(`[TRANSMISSION LOG] Final Handshake Error:`, error);
             setPreviewError("Preview unavailable. Handshake failed to locate the transmission file.");
+            setPreviewLoading(null);
+            setPlayingStem(null);
         }
     };
 
@@ -342,11 +364,16 @@ DARK INDUSTRIAL PHONK X FREDDIE GIBBS FLOW. 150 BPM. DISTORTED 808s, GLITCHED HI
                                             </div>
                                             <button
                                                 onClick={() => handlePlayPreview(stem.title)}
-                                                className={`absolute top-4 right-4 z-20 size-10 rounded-full border border-white/20 flex items-center justify-center transition-all group-hover:scale-110 ${playingStem === stem.title ? 'bg-white text-black' : 'bg-black/60 text-white hover:bg-white hover:text-black'}`}
+                                                disabled={previewLoading === stem.title}
+                                                className={`absolute top-4 right-4 z-20 ${previewLoading === stem.title ? 'w-auto px-4 h-10' : 'size-10'} rounded-full border border-white/20 flex items-center justify-center transition-all group-hover:scale-110 ${playingStem === stem.title ? 'bg-white text-black' : 'bg-black/60 text-white hover:bg-white hover:text-black'} ${previewLoading === stem.title ? 'opacity-80 cursor-wait' : ''}`}
                                             >
-                                                <span className="material-symbols-outlined text-xl">
-                                                    {playingStem === stem.title ? 'stop' : 'play_arrow'}
-                                                </span>
+                                                {previewLoading === stem.title ? (
+                                                    <span className="text-[9px] font-bold uppercase tracking-[0.2em] animate-pulse whitespace-nowrap text-green-500">Retrying Transmission...</span>
+                                                ) : (
+                                                    <span className="material-symbols-outlined text-xl">
+                                                        {playingStem === stem.title ? 'stop' : 'play_arrow'}
+                                                    </span>
+                                                )}
                                             </button>
                                         </div>
                                     ))}
