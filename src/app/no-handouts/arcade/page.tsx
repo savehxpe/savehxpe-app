@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
-import { doc, runTransaction, getDocs, collection, query, orderBy, limit, arrayUnion } from 'firebase/firestore';
+import { doc, runTransaction, getDocs, collection, query, orderBy, limit, arrayUnion, updateDoc, increment } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { Instances, Instance } from '@react-three/drei';
@@ -367,11 +367,8 @@ export default function ArcadeMissionSector() {
 
         try {
             const userRef = doc(db, 'users', firebaseUser.uid);
-            await runTransaction(db, async (txn) => {
-                const snap = await txn.get(userRef);
-                const cr = snap.data()?.credits || 0;
-                if (cr < reqCR) throw new Error("INSUFFICIENT CREDITS");
-                txn.update(userRef, { credits: cr - reqCR });
+            await updateDoc(userRef, {
+                credits: increment(-reqCR)
             });
 
             // Initialize Game
