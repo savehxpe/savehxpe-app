@@ -43,6 +43,10 @@ export default function NoHandouts() {
     const scoreRef = useRef<number>(0);
     const jackpotClaimedRef = useRef<boolean>(false);
 
+    // Audio Refs
+    const audioCtxRef = useRef<AudioContext | null>(null);
+    const backgroundAudioRef = useRef<AudioBufferSourceNode | null>(null);
+
     // Cleanup Game Loop
     useEffect(() => {
         return () => {
@@ -123,6 +127,9 @@ export default function NoHandouts() {
 
         // End Game condition (e.g. 60 seconds survival)
         if (now - gameStartTimeRef.current > 60000 && gameState === 'PLAYING') {
+            if (backgroundAudioRef.current) {
+                try { backgroundAudioRef.current.stop(); } catch (e) { }
+            }
             setGameState('GAMEOVER');
             return;
         }
@@ -199,14 +206,49 @@ export default function NoHandouts() {
         setErrorMsg(null);
 
         try {
-            const userRef = doc(db, 'users', firebaseUser.uid);
-            await runTransaction(db, async (transaction) => {
-                const docSnap = await transaction.get(userRef);
-                if (!docSnap.exists()) throw new Error("User does not exist");
-                const currentCredits = docSnap.data().credits || 0;
-                if (currentCredits < 10) throw new Error("Insufficient credits");
-                transaction.update(userRef, { credits: currentCredits - 10 });
-            });
+            // 1. Force Audio Wake-up
+            let audioCtx = audioCtxRef.current;
+            if (!audioCtx) {
+                const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+                audioCtx = new AudioContextClass();
+                audioCtxRef.current = audioCtx;
+            }
+            await audioCtx.resume();
+
+            let audioBuffer: AudioBuffer | null = null;
+
+            // 3. Asset Verification
+            try {
+                const { getDownloadURL, ref } = await import('firebase/storage');
+                const { storage } = await import('@/lib/firebase');
+                const url = await getDownloadURL(ref(storage, "vault/stems/HANDOUT_MASTER.wav"));
+                const response = await fetch(url);
+
+                if (!response.ok) {
+                    throw new Error(`ASSET 404: HTTP ${response.status}`);
+                }
+
+                const arrayBuffer = await response.arrayBuffer();
+                audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+            } catch (error) {
+                console.error("AudioBuffer Error:", error);
+                throw new Error("ASSET 404: HANDOUT_MASTER.wav missing or corrupted.");
+            }
+
+            // 2. The 10-Credit Purgatory Fix
+            try {
+                const userRef = doc(db, 'users', firebaseUser.uid);
+                await runTransaction(db, async (transaction) => {
+                    const docSnap = await transaction.get(userRef);
+                    if (!docSnap.exists()) throw new Error("User does not exist");
+                    const currentCredits = docSnap.data().credits || 0;
+                    if (currentCredits < 10) throw new Error("Insufficient credits");
+                    transaction.update(userRef, { credits: currentCredits - 10 });
+                });
+            } catch (error) {
+                console.error("Ledger Sync DB Error:", error);
+                throw new Error("LEDGER SYNC FAILED");
+            }
 
             // Initialization
             setScore(0);
@@ -217,6 +259,18 @@ export default function NoHandouts() {
             targetsRef.current = [];
             gameStartTimeRef.current = Date.now() + 1000; // 1s buffer
             lastSpawnTimeRef.current = gameStartTimeRef.current;
+
+            // Start Audio
+            if (audioBuffer && audioCtxRef.current) {
+                if (backgroundAudioRef.current) {
+                    try { backgroundAudioRef.current.stop(); } catch (e) { }
+                }
+                const source = audioCtxRef.current.createBufferSource();
+                source.buffer = audioBuffer;
+                source.connect(audioCtxRef.current.destination);
+                source.start(audioCtxRef.current.currentTime + 1); // 1s buffer for engine start
+                backgroundAudioRef.current = source;
+            }
 
             setGameState('PLAYING');
 
@@ -417,7 +471,11 @@ export default function NoHandouts() {
                                         ASCEND TO CLAIM MULTIPLIER
                                     </button>
                                     <button
-                                        onClick={(e) => { e.stopPropagation(); setGameState('SELECT'); }}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (backgroundAudioRef.current) try { backgroundAudioRef.current.stop(); } catch (err) { }
+                                            setGameState('SELECT');
+                                        }}
                                         className="px-8 py-4 bg-transparent text-white font-bold uppercase tracking-widest border border-white/20 transition-all hover:bg-white hover:text-black"
                                     >
                                         Back To Hub
