@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
+import { auth } from '@/lib/firebase';
+import { sendPasswordResetEmail } from 'firebase/auth';
 
 export default function Identity() {
     const router = useRouter();
@@ -13,10 +15,14 @@ export default function Identity() {
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [resetMessage, setResetMessage] = useState('');
+    const [showResetInput, setShowResetInput] = useState(false);
+    const { loginWithGoogle } = useAuth();
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setError('');
+        setResetMessage('');
         setLoading(true);
 
         try {
@@ -40,6 +46,39 @@ export default function Identity() {
             } else {
                 setError(message);
             }
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleGoogleSignIn = async () => {
+        setError('');
+        setResetMessage('');
+        setLoading(true);
+        try {
+            await loginWithGoogle();
+            router.push('/dashboard');
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'Google Auth failed';
+            setError(message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handlePasswordReset = async () => {
+        if (!email) {
+            setError('Please enter your email frequency above to recover access.');
+            return;
+        }
+        setLoading(true);
+        try {
+            await sendPasswordResetEmail(auth, email);
+            setResetMessage('RECOVERY TRANSMISSION SENT. CHECK YOUR INBOX.');
+            setError('');
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'Failed to send recovery request';
+            setError(message);
         } finally {
             setLoading(false);
         }
@@ -93,7 +132,7 @@ export default function Identity() {
                                             <input
                                                 value={name}
                                                 onChange={(e) => setName(e.target.value)}
-                                                className="input-field border-black focus:border-black/50"
+                                                className="input-field border-black text-zinc-900 placeholder-zinc-500 focus:border-black focus:ring-2 focus:ring-black transition-all text-[16px] sm:text-lg rounded-none"
                                                 placeholder="NAME"
                                                 required
                                                 type="text"
@@ -104,7 +143,7 @@ export default function Identity() {
                                         <input
                                             value={email}
                                             onChange={(e) => setEmail(e.target.value)}
-                                            className="input-field border-black focus:border-black/50"
+                                            className="input-field border-black text-zinc-900 placeholder-zinc-500 focus:border-black focus:ring-2 focus:ring-black transition-all text-[16px] sm:text-lg rounded-none"
                                             placeholder="EMAIL"
                                             required
                                             type="email"
@@ -114,13 +153,36 @@ export default function Identity() {
                                         <input
                                             value={password}
                                             onChange={(e) => setPassword(e.target.value)}
-                                            className="input-field border-black focus:border-black/50"
+                                            className="input-field border-black text-zinc-900 placeholder-zinc-500 focus:border-black focus:ring-2 focus:ring-black transition-all text-[16px] sm:text-lg rounded-none"
                                             placeholder="PASSWORD"
-                                            required
+                                            required={!showResetInput}
                                             type="password"
                                         />
                                     </div>
+
+                                    {isLoginMode && (
+                                        <div className="flex justify-end pt-1">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setShowResetInput(true);
+                                                    if (showResetInput && email) {
+                                                        handlePasswordReset();
+                                                    }
+                                                }}
+                                                className="text-[10px] font-mono font-bold uppercase tracking-widest text-slate-500 hover:text-black transition-colors"
+                                            >
+                                                LOST ACCESS?
+                                            </button>
+                                        </div>
+                                    )}
                                 </div>
+
+                                {resetMessage && (
+                                    <div className="bg-black text-green-500 text-xs font-mono font-bold uppercase tracking-widest text-center p-4 border border-green-500/30">
+                                        {resetMessage}
+                                    </div>
+                                )}
 
                                 {error && (
                                     <p className="text-red-500 text-xs font-bold tracking-widest text-center mt-4">
@@ -145,12 +207,25 @@ export default function Identity() {
                                     </div>
 
                                     <button
-                                        className="w-full h-14 border border-black/20 hover:border-black bg-transparent text-black transition-all flex items-center justify-center gap-3 font-bold tracking-wider text-sm uppercase group"
                                         type="button"
-                                        onClick={() => setIsLoginMode(!isLoginMode)}
+                                        disabled={loading}
+                                        onClick={handleGoogleSignIn}
+                                        className="w-full h-14 bg-white border-2 border-black text-black hover:bg-black hover:text-white transition-colors flex items-center justify-center gap-3 font-bold tracking-[0.1em] text-sm uppercase disabled:opacity-50 group"
                                     >
-                                        {isLoginMode ? 'Need access? Create Account' : 'Existing Citizen? Login Here'}
+                                        <span>✓</span>
+                                        IDENTIFY VIA GOOGLE
                                     </button>
+
+                                    <div className="pt-2">
+
+                                        <button
+                                            className="w-full h-14 border border-black/20 hover:border-black bg-transparent text-black transition-all flex items-center justify-center gap-3 font-bold tracking-wider text-sm uppercase group"
+                                            type="button"
+                                            onClick={() => setIsLoginMode(!isLoginMode)}
+                                        >
+                                            {isLoginMode ? 'Need access? Create Account' : 'Existing Citizen? Login Here'}
+                                        </button>
+                                    </div>
                                 </div>
                             </form>
 
