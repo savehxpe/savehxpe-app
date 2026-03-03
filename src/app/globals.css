@@ -29,3 +29,21 @@
 .keypad-btn:active {
   @apply bg-white text-black;
 }
+
+@keyframes rhythmPulse {
+  0% {
+    opacity: 0.1;
+  }
+
+  20% {
+    opacity: 0;
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+
+.animate-rhythm-pulse {
+  animation: rhythmPulse 526.32ms ease-out infinite;
+}

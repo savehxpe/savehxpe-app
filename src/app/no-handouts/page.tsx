@@ -6,8 +6,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { doc, runTransaction } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 
-const BPM = 114;
-const BEAT_MS = 60000 / BPM;
+const BPM_CONST = 114;
+const BEAT_MS = 526.32; // Precisely 60000 / 114
 const FALL_DURATION_MS = BEAT_MS * 4; // 4 beats to reach bottom of the track
 const HIT_ZONE_Y = 85; // Optimal hit zone at 85% down the track
 const HIT_TOLERANCE = 12; // +/- 12% margin of error for rhythm hits
@@ -377,6 +377,9 @@ export default function NoHandouts() {
 
                         {/* ISOMETRIC ENGINE VIEW */}
                         <div className="absolute inset-0 flex items-center justify-center overflow-hidden z-10 perspective-[1000px]">
+                            {/* Visual Background Metronome Pulse */}
+                            <div className="absolute inset-0 bg-white animate-rhythm-pulse pointer-events-none"></div>
+
                             {/* The Track (Rotated into 2.5D) */}
                             <div className="w-[100px] md:w-[200px] h-[200%] absolute top-[-50%] border-x-2 border-white/20 transform rotateX-60 scale-y-150 origin-bottom flex justify-center" style={{ transform: 'rotateX(55deg) scaleY(1.5)' }}>
                                 {/* Grid Lines */}
