@@ -6,6 +6,8 @@ import {
     signInWithEmailAndPassword,
     createUserWithEmailAndPassword,
     signOut,
+    signInWithPopup,
+    GoogleAuthProvider,
     User as FirebaseUser,
 } from 'firebase/auth';
 import { doc, onSnapshot } from 'firebase/firestore';
@@ -15,6 +17,7 @@ import { auth, db } from '@/lib/firebase';
 export interface UserDocument {
     uid: string;
     email: string;
+    name?: string;
     createdAt: { _seconds: number; _nanoseconds: number } | null;
     lastLogin: { _seconds: number; _nanoseconds: number } | null;
     stripeCustomerId: string;
@@ -31,6 +34,7 @@ export interface UserDocument {
         currentPeriodEnd?: { _seconds: number; _nanoseconds: number } | null;
     };
     trialEndsAt: { _seconds: number; _nanoseconds: number } | null;
+    credits: number;
     xp: {
         total: number;
         multiplier: number;
@@ -51,7 +55,8 @@ interface AuthContextType {
     userDoc: UserDocument | null;
     loading: boolean;
     login: (email: string, password: string) => Promise<void>;
-    signup: (email: string, password: string) => Promise<void>;
+    signup: (email: string, password: string, name?: string) => Promise<void>;
+    loginWithGoogle: () => Promise<void>;
     logout: () => Promise<void>;
 }
 
@@ -61,6 +66,7 @@ const AuthContext = createContext<AuthContextType>({
     loading: true,
     login: async () => { },
     signup: async () => { },
+    loginWithGoogle: async () => { },
     logout: async () => { },
 });
 
@@ -110,8 +116,77 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await signInWithEmailAndPassword(auth, email, password);
     };
 
-    const signup = async (email: string, password: string) => {
-        await createUserWithEmailAndPassword(auth, email, password);
+    const signup = async (email: string, password: string, name?: string) => {
+        const { user } = await createUserWithEmailAndPassword(auth, email, password);
+        // Initialize the economy variables for this new citizen
+        const { setDoc } = await import('firebase/firestore');
+        const userRef = doc(db, 'users', user.uid);
+        await setDoc(userRef, {
+            uid: user.uid,
+            email,
+            name: name || '',
+            createdAt: new Date(),
+            lastLogin: new Date(),
+            stripeCustomerId: '',
+            tier: {
+                current: 'FREE',
+                previous: null,
+                updatedAt: new Date(),
+                manualApprovalFlag: false,
+            },
+            subscriptionStatus: {
+                status: 'none',
+            },
+            trialEndsAt: null,
+            // Economy Initialization
+            credits: 125,
+            xp: {
+                total: 500,
+                multiplier: 1,
+                lastUpdated: new Date()
+            },
+            collectibles: [],
+            engagementScore: 0,
+        });
+    };
+
+    const loginWithGoogle = async () => {
+        const provider = new GoogleAuthProvider();
+        const { user } = await signInWithPopup(auth, provider);
+
+        // Ensure user entry exists
+        const { getDoc, setDoc } = await import('firebase/firestore');
+        const userRef = doc(db, 'users', user.uid);
+        const userDocSnap = await getDoc(userRef);
+
+        if (!userDocSnap.exists()) {
+            await setDoc(userRef, {
+                uid: user.uid,
+                email: user.email || '',
+                name: user.displayName || '',
+                createdAt: new Date(),
+                lastLogin: new Date(),
+                stripeCustomerId: '',
+                tier: {
+                    current: 'FREE',
+                    previous: null,
+                    updatedAt: new Date(),
+                    manualApprovalFlag: false,
+                },
+                subscriptionStatus: {
+                    status: 'none',
+                },
+                trialEndsAt: null,
+                credits: 125,
+                xp: {
+                    total: 500,
+                    multiplier: 1,
+                    lastUpdated: new Date()
+                },
+                collectibles: [],
+                engagementScore: 0,
+            });
+        }
     };
 
     const logout = async () => {
@@ -119,7 +194,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
 
     return (
-        <AuthContext.Provider value={{ firebaseUser, userDoc, loading, login, signup, logout }}>
+        <AuthContext.Provider value={{ firebaseUser, userDoc, loading, login, signup, loginWithGoogle, logout }}>
             {children}
         </AuthContext.Provider>
     );

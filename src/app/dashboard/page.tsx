@@ -1,282 +1,334 @@
 'use client';
 
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, useState, Suspense } from 'react';
-import Sidebar from '@/components/Sidebar';
-import XPBar from '@/components/XPBar';
-import TrialCountdown from '@/components/TrialCountdown';
-import UpgradePrompt from '@/components/UpgradePrompt';
-import DailyStreak from '@/components/DailyStreak';
+import { doc, runTransaction } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 
-function DashboardContent() {
-    const { firebaseUser, userDoc, loading } = useAuth();
+export default function Dashboard() {
     const router = useRouter();
-    const searchParams = useSearchParams();
-    const [showUpgradeSuccess, setShowUpgradeSuccess] = useState(false);
+    const { userDoc, firebaseUser, logout } = useAuth();
 
-    const currentYear = new Date().getFullYear();
+    // Alchemist State
+    const [promptInput, setPromptInput] = useState('');
+    const [generatedPrompt, setGeneratedPrompt] = useState<string | null>(null);
+    const [isGenerating, setIsGenerating] = useState(false);
+    const [justDeducted, setJustDeducted] = useState(false);
 
-    useEffect(() => {
-        if (!loading && !firebaseUser) {
-            router.replace('/login');
+    // Stem Mixer State
+    const hasStandardAccess = userDoc?.tier.current === 'STANDARD' || userDoc?.tier.current === 'PREMIUM' || (userDoc?.xp.total ?? 0) >= 1000;
+
+    const handleGenerate = async () => {
+        if (!firebaseUser || !userDoc || !promptInput.trim()) return;
+
+        if (userDoc.credits < 25) {
+            alert('Insufficient credits. 25 CR required to use Prompt Alchemist.');
+            return;
         }
-    }, [firebaseUser, loading, router]);
 
-    // Check for upgrade success redirect
-    useEffect(() => {
-        if (searchParams.get('upgrade') === 'success') {
-            setShowUpgradeSuccess(true);
-            const timer = setTimeout(() => setShowUpgradeSuccess(false), 5000);
-            return () => clearTimeout(timer);
+        setIsGenerating(true);
+        setGeneratedPrompt(null);
+        setJustDeducted(false);
+
+        try {
+            const userRef = doc(db, 'users', firebaseUser.uid);
+            await runTransaction(db, async (transaction) => {
+                const docSnap = await transaction.get(userRef);
+                if (!docSnap.exists()) throw "User does not exist";
+                const currentCredits = docSnap.data().credits || 0;
+                if (currentCredits < 25) throw "Not enough credits";
+                transaction.update(userRef, { credits: currentCredits - 25 });
+            });
+
+            setJustDeducted(true);
+
+            // Simulate generation delay
+            setTimeout(() => {
+                setGeneratedPrompt(`GENERATED SONIC ARCHITECTURE FOR: "${promptInput.toUpperCase()}". 
+DARK INDUSTRIAL PHONK X FREDDIE GIBBS FLOW. 150 BPM. DISTORTED 808s, GLITCHED HI-HATS, LO-FI MEMPHIS VOCAL CHOPS.`);
+                setIsGenerating(false);
+                setTimeout(() => setJustDeducted(false), 2000);
+            }, 2000);
+        } catch (error) {
+            console.error('Error generating:', error);
+            setIsGenerating(false);
         }
-    }, [searchParams]);
+    };
 
-    if (loading || !firebaseUser) {
-        return (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}>
-                <div className="spinner" />
-            </div>
-        );
-    }
+    const handleUnlockStem = async (stemName: string) => {
+        if (!firebaseUser || !userDoc) return;
 
-    const tier = userDoc?.tier?.current || 'FREE';
-    const xpTotal = userDoc?.xp?.total || 0;
-    const multiplier = userDoc?.xp?.multiplier || 1.0;
-    const isTrial = userDoc?.subscriptionStatus?.status === 'trialing';
-    const isStandard = tier === 'STANDARD';
-    const isPremium = tier === 'PREMIUM';
-    const isFree = tier === 'FREE';
+        if (hasStandardAccess) {
+            alert(`You already have access to ${stemName} via your Tier/XP!`);
+            return;
+        }
 
-    // Fallback: if trial expired beyond 2-hour grace period, render as FREE
-    const trialEndsAt = userDoc?.trialEndsAt;
-    const trialExpiredLocally = trialEndsAt
-        ? (trialEndsAt._seconds * 1000 + 2 * 3600 * 1000) < Date.now()
-        : false;
-    const effectiveTier = trialExpiredLocally && isTrial ? 'FREE' : tier;
+        if (userDoc.credits < 50) {
+            alert('Insufficient credits. 50 CR required to unlock this stem.');
+            return;
+        }
+
+        try {
+            const userRef = doc(db, 'users', firebaseUser.uid);
+            await runTransaction(db, async (transaction) => {
+                const docSnap = await transaction.get(userRef);
+                if (!docSnap.exists()) throw "User does not exist";
+                const currentCredits = docSnap.data().credits || 0;
+                if (currentCredits < 50) throw "Not enough credits";
+                transaction.update(userRef, { credits: currentCredits - 50 });
+            });
+            alert(`Unlocked ${stemName} for 50 Credits!`);
+        } catch (error) {
+            console.error('Error unlocking stem:', error);
+        }
+    };
 
     return (
-        <>
-            <Sidebar />
-            <main className="main-content" style={{
-                background: isPremium ? 'linear-gradient(180deg, #0a0800 0%, #000 30%)' : undefined,
-            }}>
-                {/* Upgrade Success Toast */}
-                {showUpgradeSuccess && (
-                    <div className="animate-slide-up" style={{
-                        padding: '1rem',
-                        background: 'rgba(0,255,136,0.08)',
-                        border: '1px solid rgba(0,255,136,0.3)',
-                        marginBottom: '1.5rem',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.75rem',
-                    }}>
-                        <span style={{ fontSize: '1.25rem' }}>✓</span>
-                        <div>
-                            <span style={{
-                                fontWeight: 700,
-                                fontSize: '0.8125rem',
-                                letterSpacing: '0.05em',
-                                textTransform: 'uppercase' as const,
-                            }}>
-                                Upgrade Successful
-                            </span>
-                            <span className="text-label" style={{
-                                display: 'block',
-                                marginTop: '0.125rem',
-                                color: 'var(--color-accent-green)',
-                            }}>
-                                Your 7-day Standard trial is now active
-                            </span>
-                        </div>
-                    </div>
-                )}
-
-                {/* FREE Tier: Upgrade Header */}
-                {effectiveTier === 'FREE' && <UpgradePrompt variant="header" />}
-
-                {/* Page Header */}
-                <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    marginBottom: '1.5rem',
-                }}>
-                    <div>
-                        <h1 className="text-heading" style={{ marginBottom: '0.25rem' }}>
-                            {isPremium ? 'Command Center' : 'Dashboard'}
-                        </h1>
-                        <p className="text-label">
-                            {isPremium ? 'VIP Access · Direct Line Active'
-                                : isStandard ? 'Standard Access · Vault Unlocked'
-                                    : 'Free Access · Limited Vault'}
-                        </p>
-                    </div>
-
-                    {/* Live Drop Indicator */}
-                    <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.375rem',
-                        padding: '0.375rem 0.75rem',
-                        border: '1px solid var(--color-border)',
-                    }}>
-                        <div style={{
-                            width: '6px',
-                            height: '6px',
-                            borderRadius: '50%',
-                            background: '#00FF88',
-                            boxShadow: '0 0 8px rgba(0,255,136,0.5)',
-                        }} />
-                        <span className="text-label" style={{ fontSize: '0.5625rem' }}>System Online</span>
-                    </div>
+        <div className="bg-[#000000] text-slate-100 font-display min-h-screen flex flex-col overflow-x-hidden selection:bg-white selection:text-black">
+            <div className="relative flex min-h-screen w-full flex-col group/design-root">
+                <div className="fixed inset-0 overflow-hidden pointer-events-none z-0 flex items-center justify-center">
+                    <div className="w-[300px] h-[300px] md:w-[600px] md:h-[600px] bg-white/5 rounded-full blur-[100px] absolute -top-20 -left-20"></div>
+                    <div className="w-full h-full absolute opacity-10 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-white/10 via-transparent to-transparent"></div>
                 </div>
 
-                {/* XP Bar */}
-                <div style={{ marginBottom: '1.5rem' }}>
-                    <XPBar total={xpTotal} multiplier={multiplier} tier={effectiveTier as 'FREE' | 'STANDARD' | 'PREMIUM'} />
-                </div>
-
-                {/* Grid Layout */}
-                <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-                    gap: '1rem',
-                }}>
-                    {/* Trial Countdown (STANDARD only) */}
-                    {isStandard && isTrial && (
-                        <TrialCountdown trialEndsAt={trialEndsAt} />
-                    )}
-
-                    {/* Daily Streak */}
-                    <DailyStreak
-                        currentStreak={Math.min(Math.floor(xpTotal / 50), 6)}
-                        xpReward={50}
-                        multiplier={multiplier}
-                        claimed={false}
-                        onClaim={async () => {
-                            try {
-                                await fetch('/api/grant-xp', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({
-                                        uid: firebaseUser.uid,
-                                        action: 'daily_login',
-                                    }),
-                                });
-                            } catch (err) {
-                                console.error('Failed to claim daily loot:', err);
-                            }
-                        }}
-                    />
-
-                    {/* Quick Stats Card */}
-                    <div className="card" style={{ padding: '1.25rem' }}>
-                        <span className="text-label" style={{
-                            display: 'block',
-                            marginBottom: '1rem',
-                        }}>Fan Intelligence</span>
-
-                        <div style={{
-                            display: 'grid',
-                            gridTemplateColumns: '1fr 1fr',
-                            gap: '1rem',
-                        }}>
-                            <div>
-                                <span style={{
-                                    fontSize: '1.5rem',
-                                    fontWeight: 800,
-                                    display: 'block',
-                                }}>
-                                    {userDoc?.collectibles?.length || 0}
-                                </span>
-                                <span className="text-label" style={{ fontSize: '0.5625rem' }}>Collectibles</span>
+                <div className="layout-container flex h-full grow flex-col md:flex-row relative z-10">
+                    <aside className="w-full md:w-72 border-b md:border-b-0 md:border-r border-white/10 bg-black/80 backdrop-blur-md flex flex-col shrink-0">
+                        <div className="flex items-center gap-4 px-6 py-6 border-b border-white/10">
+                            <div className="size-6 text-primary">
+                                <span className="material-symbols-outlined text-2xl leading-none">graphic_eq</span>
                             </div>
-                            <div>
-                                <span style={{
-                                    fontSize: '1.5rem',
-                                    fontWeight: 800,
-                                    display: 'block',
-                                    color: userDoc?.engagementScore && userDoc.engagementScore > 500
-                                        ? 'var(--color-accent-green)' : undefined,
-                                }}>
-                                    {Math.round(userDoc?.engagementScore || 0)}
-                                </span>
-                                <span className="text-label" style={{ fontSize: '0.5625rem' }}>Engagement Score</span>
+                            <h2 className="text-primary text-xl font-bold leading-tight tracking-widest uppercase">savehxpe</h2>
+                        </div>
+                        <div className="p-6 flex flex-col gap-6">
+                            <div className="flex flex-col gap-1">
+                                <span className="text-xs text-slate-500 uppercase tracking-widest">Fan ID</span>
+                                <span className="text-sm font-mono text-white tracking-wider truncate">{userDoc?.name || 'GUEST'}</span>
                             </div>
-                            <div>
-                                <span style={{
-                                    fontSize: '1.5rem',
-                                    fontWeight: 800,
-                                    display: 'block',
-                                }}>
-                                    {multiplier}x
-                                </span>
-                                <span className="text-label" style={{ fontSize: '0.5625rem' }}>XP Multiplier</span>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="flex flex-col gap-1">
+                                    <span className="text-xs text-slate-500 uppercase tracking-widest">XP Level</span>
+                                    <div className="flex items-center gap-2">
+                                        <span className="material-symbols-outlined text-sm text-yellow-500">bolt</span>
+                                        <span className="text-lg font-bold text-white">{userDoc?.xp.total || 0}</span>
+                                    </div>
+                                </div>
+                                <div className="flex flex-col gap-1 relative">
+                                    <span className="text-xs text-slate-500 uppercase tracking-widest">Credits</span>
+                                    <div className="flex items-center gap-2">
+                                        <span className="material-symbols-outlined text-sm text-green-500">database</span>
+                                        <span className={`text-lg font-bold text-white ${justDeducted ? 'animate-credits-drop' : ''}`}>
+                                            {userDoc?.credits ?? 0}
+                                        </span>
+                                    </div>
+                                    {/* Flash Deduction */}
+                                    {justDeducted && (
+                                        <div className="absolute top-8 left-6 text-red-500 text-xs font-mono font-bold animate-[flash_2s_ease-out_forwards]">
+                                            -25
+                                        </div>
+                                    )}
+                                </div>
                             </div>
-                            <div>
-                                <span style={{
-                                    fontSize: '1.5rem',
-                                    fontWeight: 800,
-                                    display: 'block',
-                                    color: isPremium ? 'var(--color-accent-gold)' : isStandard ? 'var(--color-accent-purple)' : undefined,
-                                }}>
-                                    {effectiveTier}
-                                </span>
-                                <span className="text-label" style={{ fontSize: '0.5625rem' }}>Current Tier</span>
+                            <div className="flex flex-col gap-1 mt-2 p-3 bg-white/5 border border-white/10 rounded">
+                                <span className="text-[10px] text-slate-500 uppercase tracking-[0.2em] font-bold">Engagement Score</span>
+                                <div className="flex items-center gap-2">
+                                    <span className="material-symbols-outlined text-sm text-blue-400">monitoring</span>
+                                    <span className="text-xl font-bold font-mono tracking-widest text-[#E2E8F0]">
+                                        {(Math.log10((userDoc?.xp.total || 0) + 1) * 20).toFixed(1)}
+                                    </span>
+                                </div>
                             </div>
                         </div>
-                    </div>
-
-                    {/* Premium Concierge Widget */}
-                    {isPremium && (
-                        <div className="card glow-gold" style={{
-                            background: 'linear-gradient(135deg, rgba(255,215,0,0.05), rgba(0,0,0,0.9))',
-                            borderColor: 'rgba(255,215,0,0.2)',
-                            padding: '1.5rem',
-                        }}>
-                            <span className="text-label" style={{
-                                color: 'var(--color-accent-gold)',
-                                display: 'block',
-                                marginBottom: '0.75rem',
-                            }}>VIP Concierge</span>
-                            <p style={{
-                                fontSize: '0.8125rem',
-                                color: 'var(--color-text-secondary)',
-                                lineHeight: 1.6,
-                                marginBottom: '1rem',
-                            }}>
-                                Direct line to the saveHXPE team. Exclusive drops, pre-release access, and priority support.
-                            </p>
-                            <button className="btn-outline" style={{
-                                borderColor: 'var(--color-accent-gold)',
-                                color: 'var(--color-accent-gold)',
-                                height: '2.5rem',
-                            }}>
-                                Open Direct Chat
+                        <nav className="flex-1 px-4 py-2 flex flex-col gap-2">
+                            <button onClick={() => router.push('/dashboard')} className="flex w-full items-center gap-3 px-4 py-3 text-white bg-white/10 rounded border border-white/5 uppercase tracking-wider text-sm font-bold">
+                                <span className="material-symbols-outlined text-lg">dashboard</span>
+                                Dashboard
+                            </button>
+                            <button onClick={() => router.push('/vault')} className="flex w-full items-center gap-3 px-4 py-3 text-slate-400 hover:text-white hover:bg-white/5 rounded transition-colors uppercase tracking-wider text-sm">
+                                <span className="material-symbols-outlined text-lg">lock_open</span>
+                                The Vault
+                            </button>
+                            <button onClick={() => router.push('/no-handouts')} className="flex w-full items-center gap-3 px-4 py-3 text-slate-400 hover:text-white hover:bg-white/5 rounded transition-colors uppercase tracking-wider text-sm">
+                                <span className="material-symbols-outlined text-lg">videogame_asset</span>
+                                No Handouts
+                            </button>
+                            <button onClick={() => router.push('/merch')} className="flex w-full items-center gap-3 px-4 py-3 text-slate-400 hover:text-white hover:bg-white/5 rounded transition-colors uppercase tracking-wider text-sm">
+                                <span className="material-symbols-outlined text-lg">shopping_bag</span>
+                                Merch
+                            </button>
+                            <button onClick={() => router.push('/ascension')} className="flex w-full items-center gap-3 px-4 py-3 text-slate-400 hover:text-white hover:bg-white/5 rounded transition-colors uppercase tracking-wider text-sm mt-4 border-t border-white/10 pt-4">
+                                <span className="material-symbols-outlined text-lg text-yellow-500">star</span>
+                                Ascension Portal
+                            </button>
+                        </nav>
+                        <div className="p-6 border-t border-white/10 mt-auto">
+                            <button onClick={() => { logout(); router.push('/'); }} className="w-full py-3 px-4 border border-white/20 hover:border-white text-xs uppercase tracking-[0.2em] transition-colors rounded">
+                                Log Out
                             </button>
                         </div>
-                    )}
+                    </aside>
+                    <main className="flex-1 flex flex-col relative h-full">
+                        <header className="flex items-center justify-between px-6 py-6 md:px-10 border-b border-white/10 bg-black/50 backdrop-blur-sm">
+                            <div>
+                                <h1 className="text-2xl md:text-3xl font-bold uppercase tracking-tighter text-white leading-none">Unified Workspace</h1>
+                                <p className="text-slate-400 text-xs uppercase tracking-[0.2em] mt-2">Vault Stems + Prompt Alchemist</p>
+                            </div>
+                            <div className="hidden md:flex items-center gap-2 px-3 py-1 rounded bg-white/5 border border-white/10">
+                                <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                                <span className="text-xs uppercase tracking-widest text-slate-300 font-mono">Live Link Active</span>
+                            </div>
+                        </header>
+                        <div className="flex-1 overflow-y-auto">
+                            {/* Gated Stems Section */}
+                            <section className="p-6 md:p-10 lg:p-16">
+                                <div className="flex items-center justify-between mb-8 max-w-6xl mx-auto border-l-2 border-white pl-4">
+                                    <h2 className="text-lg font-bold uppercase tracking-[0.3em] text-white">Gated Stems</h2>
+                                    <span className="text-[10px] text-slate-500 uppercase tracking-widest font-mono">Series: Handout_2026</span>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8 max-w-6xl mx-auto">
+                                    {[
+                                        { title: 'Drums', file: 'STEM_FILE_01.WAV', img: "https://lh3.googleusercontent.com/aida-public/AB6AXuD9LC0I08unnfrnQSzMPqY0--dn0V5HdDMRKNJ9le1Ixuoe1Wb28SGIYrQ5yUPZKWQKdas6Qo_qa2lEwHVk3QAG2Mg1iIZTCJTuP4y6HLyBo1Or-dIgMqWxiJTCUvgWbvLtVHEbD4FF0kt1TX-ZV59-GL8Kb7DVppn_HLLlhyWlNDnzivKknCO8z7JdyceB-plJbHz015GKOSl0OiG3l5lFf51vBkcoH9edkQKy00cQUhileEzO1ebX5pSVX9bLMsuyVpTQGPjq09Y" },
+                                        { title: 'Bass', file: 'STEM_FILE_02.WAV', img: "https://lh3.googleusercontent.com/aida-public/AB6AXuBYvm7ZZvozth3hIUIKlKeXZnXItW8prQSbKBb-uilqt7XsURZf8XPpdbtS3v3iJzYlzsQgVTFGK5aEoOXDKwgzK-oti8KvLuapewzT0OHRYq6z4Cf7q1Ywze8GryN2obc2-7gYzkF_MYdhEJwXUR-0H-JyCb36ieQQDKdKMB3IxmTwKBdZx8HBER5zc0gSQ8mdzrKFLtkeQMjuRCaZ1rXYDHy4nAklcohOY9Bz_2WS_vMEqeu4sv_ZZx8ewS9s9EMBBhmbkbjN888" },
+                                        { title: 'Synths', file: 'STEM_FILE_03.WAV', img: "https://lh3.googleusercontent.com/aida-public/AB6AXuCFQhPoMjFkWrCcJKOdl3Be8FH20GZ2u1LVs7RI3Jff2eczjh3hUACmwLNG64iSsxqA02A94skHH1xEuAiNmDEFmenH_fMb4AvOrCC47ztMpMPcodK5RNY4GNcZeRoMhdm5I4gniTrC8H4ZPWoikS2XvWnKVDD_OOCIeJFJiIVTd_6pu6DoXSAoXQyc7aqTCZFlYduBuukGsA95MhIVepBcDBO1-rq7VhV6I1LwdyqdmMxCmwjmSzV4eW4dvZQ6Il4QBEwBnmc7s5w" }
+                                    ].map((stem, index) => (
+                                        <div key={index} className="relative overflow-hidden rounded-lg border border-white/10 aspect-[3/4] flex flex-col justify-end p-6 bg-black/50 transition-all duration-300 hover:border-white/30 group">
+                                            <div className="absolute inset-0 w-full h-full bg-cover bg-center opacity-50 blur-[15px] grayscale" style={{ backgroundImage: `url('${stem.img}')` }}></div>
+                                            <div className="relative z-10 flex flex-col h-full items-center justify-center text-center gap-6 p-4">
+                                                {!hasStandardAccess && (
+                                                    <div className="size-16 rounded-full bg-black/80 border border-white/20 flex items-center justify-center backdrop-blur-md mb-2">
+                                                        <span className="material-symbols-outlined text-3xl text-white">lock</span>
+                                                    </div>
+                                                )}
+                                                <div className="space-y-1">
+                                                    <h3 className="text-3xl font-bold uppercase tracking-widest text-white">{stem.title}</h3>
+                                                    <p className="text-xs text-slate-300 font-mono tracking-wider">{stem.file}</p>
+                                                </div>
+                                                <div className="w-full border-t border-white/20 my-2"></div>
+                                                <div className="flex flex-col gap-3 w-full">
+                                                    <button
+                                                        onClick={() => handleUnlockStem(stem.title)}
+                                                        className={`w-full py-3 text-xs font-bold uppercase tracking-[0.15em] transition-colors ${hasStandardAccess ? 'bg-black text-white border border-white' : 'bg-white text-black hover:bg-slate-200'}`}
+                                                    >
+                                                        {hasStandardAccess ? 'UNLOCKED / PLAY' : '50 Credits To Unlock'}
+                                                    </button>
+                                                    {!hasStandardAccess && (
+                                                        <span className="text-[10px] uppercase tracking-widest text-slate-400">or Unlimited Access (Standard Tier)</span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            <button className="absolute top-4 right-4 z-20 size-10 rounded-full bg-black/60 border border-white/20 flex items-center justify-center hover:bg-white hover:text-black transition-all group-hover:scale-110">
+                                                <span className="material-symbols-outlined text-xl">play_arrow</span>
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </section>
+
+                            {/* Prompt Alchemist Section */}
+                            <section className="p-6 md:p-10 lg:px-16 lg:pb-24 border-t border-white/10 bg-white/[0.02]">
+                                <div className="max-w-6xl mx-auto">
+                                    <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-10">
+                                        <div className="border-l-2 border-white pl-4">
+                                            <h2 className="text-2xl font-bold uppercase tracking-[0.3em] text-white">Prompt Alchemist</h2>
+                                            <p className="text-xs text-slate-500 uppercase tracking-widest mt-2">AI-DRIVEN SONIC ARCHITECTURE</p>
+                                        </div>
+                                        <div className="px-3 py-1.5 border border-white/20 bg-black text-white text-[10px] font-bold uppercase tracking-[0.2em]">
+                                            COST: 25 CREDITS
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
+                                        <div className="lg:col-span-7 flex flex-col gap-4">
+                                            <div className="bg-white p-1">
+                                                <div className="flex flex-col md:flex-row">
+                                                    <input
+                                                        type="text"
+                                                        value={promptInput}
+                                                        onChange={(e) => setPromptInput(e.target.value)}
+                                                        placeholder="DESCRIBE THE VIBE (e.g. Gritty 90s boom bap with distorted bass)"
+                                                        className="bg-white text-black border-none focus:ring-0 placeholder-black/40 uppercase tracking-widest text-sm font-bold w-full py-4 px-6 outline-none"
+                                                    />
+                                                    <button
+                                                        onClick={handleGenerate}
+                                                        disabled={isGenerating || !promptInput.trim()}
+                                                        className="bg-black text-white px-8 py-4 text-xs font-bold uppercase tracking-[0.2em] hover:bg-zinc-800 transition-colors whitespace-nowrap border-l border-white/10 disabled:opacity-50"
+                                                    >
+                                                        {isGenerating ? 'Synthesizing...' : 'Generate Prompt'}
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div className="flex justify-between items-center px-1">
+                                                <span className="text-[9px] text-slate-500 uppercase tracking-widest">Model: SONIC-V3-ALPHA</span>
+                                                <span className="text-[9px] text-slate-500 uppercase tracking-widest">Token Entropy: 0.85</span>
+                                            </div>
+                                        </div>
+                                        <div className="lg:col-span-5 relative group">
+                                            <div className="absolute -top-3 left-4 px-2 bg-[#000000] z-20 flex gap-4">
+                                                <span className="text-[10px] text-white uppercase tracking-widest font-bold">Output Log</span>
+                                            </div>
+                                            <div className="border border-white/40 h-40 md:h-full min-h-[140px] flex items-start justify-start relative overflow-hidden bg-black/80 p-6 shadow-[0_0_15px_rgba(255,255,255,0.05)]">
+                                                {generatedPrompt ? (
+                                                    <>
+                                                        <div className="absolute top-0 right-0 p-3">
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
+                                                                <span className="text-[9px] font-bold text-green-500 uppercase tracking-widest">MINTING SUCCESSFUL</span>
+                                                            </div>
+                                                        </div>
+                                                        {/* Flash logic inside output log */}
+                                                        {justDeducted && (
+                                                            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 pointer-events-none w-full px-6 flex justify-center">
+                                                                <div className="bg-white text-black py-2 px-4 text-center animate-[flash_2s_ease-out_forwards] shadow-lg">
+                                                                    <span className="text-xs font-bold uppercase tracking-widest">PROMPT ARCHITECTED: -25 CREDITS</span>
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                        <div className="relative z-10 w-full h-full font-mono text-sm leading-relaxed text-white/90">
+                                                            <p className="overflow-hidden whitespace-pre-wrap animate-[typing_3.5s_steps(40,end)_forwards] border-r-2 border-white">{generatedPrompt}</p>
+                                                        </div>
+                                                    </>
+                                                ) : isGenerating ? (
+                                                    <div className="absolute inset-0 blur-[8px] opacity-40 p-4 space-y-3 pointer-events-none select-none">
+                                                        <div className="h-2 w-3/4 bg-white/40 rounded-full"></div>
+                                                        <div className="h-2 w-1/2 bg-white/40 rounded-full"></div>
+                                                        <div className="h-2 w-5/6 bg-white/40 rounded-full"></div>
+                                                        <div className="h-2 w-2/3 bg-white/40 rounded-full"></div>
+                                                    </div>
+                                                ) : (
+                                                    <div className="relative z-10 flex flex-col items-center justify-center w-full h-full gap-3">
+                                                        <span className="material-symbols-outlined text-white/40 text-2xl">lock_clock</span>
+                                                        <span className="text-[10px] text-white/60 uppercase tracking-[0.3em] font-bold">Results Ready</span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </section>
+                        </div>
+                        <footer className="relative z-10 flex flex-col gap-6 px-10 py-8 text-center border-t border-white/5 bg-black/40 backdrop-blur-sm">
+                            <p className="text-slate-500 text-[10px] font-normal leading-normal uppercase tracking-[0.4em]">© 2026 HANDOUT MUSIC DROP</p>
+                        </footer>
+                    </main>
                 </div>
-
-                {/* Copyright Footer */}
-                <footer className="copyright-footer">
-                    © {currentYear} saveHXPE. All rights reserved. System Ver: 4.0.2
-                </footer>
-            </main>
-        </>
-    );
-}
-
-export default function DashboardPage() {
-    return (
-        <Suspense fallback={
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}>
-                <div className="spinner" />
             </div>
-        }>
-            <DashboardContent />
-        </Suspense>
+            {/* Base flicker/typing keyframes */}
+            <style jsx global>{`
+                @keyframes flash {
+                    0% { opacity: 0; transform: scale(0.95) translateY(10px); }
+                    20% { opacity: 1; transform: scale(1) translateY(0); }
+                    80% { opacity: 1; transform: scale(1) translateY(0); }
+                    100% { opacity: 0; transform: scale(0.95) translateY(-10px); }
+                }
+                @keyframes typing {
+                    from { width: 0; max-height: 100% }
+                    to { width: 100%; max-height: 100% }
+                }
+                @keyframes creditsDrop {
+                    0% { color: #ffffff; }
+                    50% { color: #ef4444; }
+                    100% { color: #ffffff; }
+                }
+            `}</style>
+        </div>
     );
 }
