@@ -354,18 +354,34 @@ export default function ArcadeMissionSector() {
     };
 
     const handleStart = async (selectedMode: 'STANDARD' | 'PRO') => {
-        if (!firebaseUser || !userDoc || isProcessing || systemStatus.maintenance_mode) return;
+        console.log("[ IGNITION ]: Button Clicked. Initiating Diagnostic Gate...");
 
-        const reqCR = selectedMode === 'STANDARD' ? 10 : 25;
-        if (userDoc.credits < reqCR) {
-            setErrorMsg(`INSUFFICIENT FUNDS. ${reqCR} CR REQUIRED.`);
-            return;
+        // Synchronous AudioContext initialization for mobile unlock
+        try {
+            const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+            if (AudioContext) {
+                const ctx = new AudioContext();
+                ctx.resume();
+            }
+        } catch (audioErr) {
+            console.warn("AudioContext init failed:", audioErr);
         }
 
-        setIsProcessing(true);
-        setErrorMsg(null);
-
         try {
+            if (systemStatus.maintenance_mode) {
+                throw new Error("SYSTEM LOCKED FOR MAINTENANCE");
+            }
+
+            if (!firebaseUser || !userDoc || isProcessing) return;
+
+            const reqCR = selectedMode === 'STANDARD' ? 10 : 25;
+            if (userDoc.credits < reqCR) {
+                throw new Error(`INSUFFICIENT FUNDS. ${reqCR} CR REQUIRED.`);
+            }
+
+            setIsProcessing(true);
+            setErrorMsg(null);
+
             const userRef = doc(db, 'users', firebaseUser.uid);
             await updateDoc(userRef, {
                 credits: increment(-reqCR)
@@ -384,7 +400,9 @@ export default function ArcadeMissionSector() {
             setTelemetry({ bpm: selectedMode === 'PRO' ? 140 : 120, latency: 16, engineActive: true, syncRate: "100%" });
 
         } catch (e: any) {
+            console.error("Start Error:", e);
             setErrorMsg(e.message || "SYNC ERROR");
+            window.alert(`[ERROR]: ${e.message || "SYNC ERROR"}`);
         } finally {
             setIsProcessing(false);
         }
@@ -480,7 +498,7 @@ export default function ArcadeMissionSector() {
                                     <span className="text-white font-bold tracking-widest">10 CR</span>
                                 </div>
                                 <button disabled={isProcessing || systemStatus.maintenance_mode} className={`mt-4 w-full py-3 font-bold uppercase tracking-widest pt-3 transition-all ${systemStatus.maintenance_mode ? 'bg-slate-500 text-slate-300 cursor-not-allowed grayscale' : 'bg-cyan-500/10 text-cyan-400 group-hover:bg-cyan-500 group-hover:text-black'}`}>
-                                    {isProcessing ? 'HANDSHAKE...' : 'INITIATE'}
+                                    {systemStatus.maintenance_mode ? 'SYSTEM LOCKED' : isProcessing ? 'HANDSHAKE...' : 'INITIATE'}
                                 </button>
                             </div>
 
@@ -499,7 +517,7 @@ export default function ArcadeMissionSector() {
                                     <span className="text-white font-bold tracking-widest">25 CR</span>
                                 </div>
                                 <button disabled={isProcessing || systemStatus.maintenance_mode} className={`mt-4 w-full py-3 font-bold uppercase tracking-widest transition-all ${systemStatus.maintenance_mode ? 'bg-slate-600 text-slate-300 cursor-not-allowed grayscale' : 'bg-white/10 text-white group-hover:bg-white group-hover:text-black'}`}>
-                                    {isProcessing ? 'HANDSHAKE...' : 'BREACH PROTOCOL'}
+                                    {systemStatus.maintenance_mode ? 'SYSTEM LOCKED' : isProcessing ? 'HANDSHAKE...' : 'BREACH PROTOCOL'}
                                 </button>
                             </div>
                         </div>

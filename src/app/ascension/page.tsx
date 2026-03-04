@@ -4,31 +4,24 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { loadStripe } from '@stripe/stripe-js';
-import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || 'pk_test_placeholder');
 
-function CheckoutForm({ selectedTier, billingFrequency }: { selectedTier: string, billingFrequency: string }) {
-    const stripe = useStripe();
-    const elements = useElements();
-    const router = useRouter();
-    const { userDoc, firebaseUser } = useAuth();
+function AuthorizeButton({ selectedTier, billingFrequency }: { selectedTier: string, billingFrequency: string }) {
+    const { firebaseUser } = useAuth();
     const [isAuthorizing, setIsAuthorizing] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     const handleAuthorize = async (e: React.FormEvent) => {
         e.preventDefault();
 
-        if (!stripe || !elements || !firebaseUser) {
-            return;
-        }
+        if (!firebaseUser) return;
 
         setIsAuthorizing(true);
         setError(null);
 
-        // Fetch Client Secret by creating a subscription via custom backend logic
         try {
-            const res = await fetch('/api/create-subscription', {
+            const res = await fetch('/api/checkout', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -38,86 +31,70 @@ function CheckoutForm({ selectedTier, billingFrequency }: { selectedTier: string
                 })
             });
 
+            if (!res.ok) {
+                let errorMsg = 'Failed to initialize checkout';
+                try {
+                    const data = await res.json();
+                    if (data.error) errorMsg = data.error;
+                } catch (e) { }
+
+                throw new Error(errorMsg);
+            }
+
             const data = await res.json();
-            if (!res.ok) throw new Error(data.error || 'Failed to initialize subscription');
 
-            // Confirm card payment with client secret returned
-            const cardElement = elements.getElement(CardElement);
-            if (!cardElement) throw new Error("Card element not found");
+            if (!data.sessionId) {
+                throw new Error('No session ID returned from API');
+            }
 
-            const { error: stripeError, paymentIntent } = await stripe.confirmCardPayment(data.clientSecret, {
-                payment_method: {
-                    card: cardElement,
-                    billing_details: {
-                        email: firebaseUser.email || undefined,
-                    }
-                }
+            const stripe = await stripePromise;
+            if (!stripe) {
+                throw new Error('Stripe failed to initialize');
+            }
+
+            const { error: stripeError } = await (stripe as any).redirectToCheckout({
+                sessionId: data.sessionId
             });
 
             if (stripeError) {
-                setError(stripeError.message || 'Payment processing failed');
-            } else if (paymentIntent?.status === 'succeeded' || paymentIntent?.status === 'requires_action') {
-                router.push('/dashboard?upgrade=success');
+                setError(stripeError.message || 'Payment forwarding failed');
             }
 
         } catch (err: any) {
-            console.error(err);
-            // Simulated success for demo fallback if API lacking keys
-            setTimeout(() => {
-                alert(`Simulated demo payment success for ${selectedTier} plan (API Error: ${err.message})!`);
-                router.push('/dashboard');
-            }, 1000);
+            console.error('Payment failed:', err);
+            setError(err.message || 'Payment processing failed due to a system error.');
         } finally {
             setIsAuthorizing(false);
         }
     };
 
     return (
-        <form onSubmit={handleAuthorize} className="flex flex-col gap-6 relative">
+        <form onSubmit={handleAuthorize} className="flex flex-col gap-6 relative mt-4">
             {isAuthorizing && (
                 <div className="absolute -inset-10 bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.4),transparent)] skew-x-[-20deg] pointer-events-none z-20 animate-[scan_1.5s_linear_infinite]" />
             )}
-            <div className="flex flex-col gap-4">
-                <div className="space-y-1">
-                    <label className="text-[10px] font-mono uppercase tracking-widest text-white/50">Credit / Debit Card</label>
-                    <div className="w-full bg-black border border-white p-4 transition-all focus-within:border-white/80">
-                        <CardElement
-                            options={{
-                                style: {
-                                    base: {
-                                        fontSize: '14px',
-                                        color: '#ffffff',
-                                        fontFamily: 'monospace',
-                                        '::placeholder': {
-                                            color: 'rgba(255,255,255,0.3)',
-                                        },
-                                        iconColor: '#ffffff'
-                                    },
-                                    invalid: {
-                                        color: '#ef4444',
-                                    },
-                                },
-                            }}
-                        />
-                    </div>
-                    {error && <div className="text-red-500 text-xs font-mono uppercase tracking-widest mt-2">{error}</div>}
+
+            {error && (
+                <div className="text-red-500 text-xs font-mono uppercase tracking-widest text-center border border-red-500/30 p-3 bg-red-500/10">
+                    {error}
                 </div>
-            </div>
+            )}
 
             <button
                 type="submit"
-                disabled={isAuthorizing || !stripe}
+                disabled={isAuthorizing}
                 className="w-full bg-white text-black h-16 font-bold uppercase tracking-[0.2em] text-sm hover:bg-white/90 transition-all duration-200 relative overflow-hidden group"
             >
                 <span className="relative z-10">{isAuthorizing ? 'INITIALIZING FREQUENCY...' : 'Authorize Ascension'}</span>
                 <div className="absolute inset-0 bg-black/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
             </button>
             <div className="text-center">
-                <p className="text-[10px] text-white/30 font-mono uppercase tracking-widest">Encrypted via Stripe Elements // 256-bit SSL</p>
+                <p className="text-[10px] text-white/30 font-mono uppercase tracking-widest">Encrypted via Stripe // 256-bit SSL</p>
             </div>
         </form>
     );
 }
+
 
 export default function AscensionPortal() {
     const router = useRouter();
@@ -247,10 +224,8 @@ export default function AscensionPortal() {
                                 </p>
                             </div>
 
-                            {/* React Stripe JS Elements Provider */}
-                            <Elements stripe={stripePromise} options={{ appearance: { theme: 'night' }, fonts: [{ cssSrc: 'https://fonts.googleapis.com/css2?family=JetBrains+Mono&display=swap' }] }}>
-                                <CheckoutForm selectedTier={selectedTier} billingFrequency={billingFrequency} />
-                            </Elements>
+                            {/* Stripe Checkout Handling */}
+                            <AuthorizeButton selectedTier={selectedTier} billingFrequency={billingFrequency} />
 
                         </div>
                     </div>

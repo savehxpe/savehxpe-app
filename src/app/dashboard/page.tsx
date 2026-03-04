@@ -8,6 +8,7 @@ import { db } from '@/lib/firebase';
 import CommanderWidget from '@/components/CommanderWidget';
 import SystemAlert from '@/components/SystemAlert';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
+import RemixPromoBanner from '@/components/RemixPromoBanner';
 
 export default function Dashboard() {
     const router = useRouter();
@@ -33,26 +34,12 @@ export default function Dashboard() {
     // Stem Mixer State
     const hasStandardAccess = userDoc?.tier.current === 'STANDARD' || userDoc?.tier.current === 'PREMIUM' || (userDoc?.xp.total ?? 0) >= 1000;
     const isOwned = (assetId: string) => hasStandardAccess || !!userDoc?.unlocked_assets?.includes(assetId);
-    const audioRef = useRef<HTMLAudioElement | null>(null);
-    const [playingStem, setPlayingStem] = useState<string | null>(null);
-    const [previewLoading, setPreviewLoading] = useState<string | null>(null);
-    const [previewError, setPreviewError] = useState<string | null>(null);
-
-    // Cleanup audio on unmount
-    useEffect(() => {
-        return () => {
-            if (audioRef.current) {
-                audioRef.current.pause();
-                audioRef.current = null;
-            }
-        };
-    }, []);
 
     const handleGenerate = async () => {
         if (!firebaseUser || !userDoc || !promptInput.trim()) return;
 
-        if (userDoc.credits < 25) {
-            alert('Insufficient credits. 25 CR required to use Prompt Alchemist.');
+        if (userDoc.credits < 10) {
+            alert('Insufficient credits. 10 CR required to use Prompt Alchemist.');
             return;
         }
 
@@ -66,8 +53,8 @@ export default function Dashboard() {
                 const docSnap = await transaction.get(userRef);
                 if (!docSnap.exists()) throw "User does not exist";
                 const currentCredits = docSnap.data().credits || 0;
-                if (currentCredits < 25) throw "Not enough credits";
-                transaction.update(userRef, { credits: currentCredits - 25 });
+                if (currentCredits < 10) throw "Not enough credits";
+                transaction.update(userRef, { credits: currentCredits - 10 });
             });
 
             setJustDeducted(true);
@@ -157,71 +144,6 @@ DARK INDUSTRIAL PHONK X FREDDIE GIBBS FLOW. 150 BPM. DISTORTED 808s, GLITCHED HI
         }
     };
 
-    const handlePlayPreview = async (stemName: string) => {
-        if (playingStem === stemName && !previewLoading) {
-            audioRef.current?.pause();
-            setPlayingStem(null);
-            return;
-        }
-
-        if (audioRef.current) {
-            audioRef.current.pause();
-        }
-
-        setPreviewLoading(stemName);
-        setPreviewError(null);
-
-        let baseFileName = '';
-        const nameUpper = stemName.toUpperCase();
-        if (nameUpper === 'DRUMS') baseFileName = 'drums_preview';
-        else if (nameUpper === 'BASS') baseFileName = 'bass_preview';
-        else if (nameUpper === 'SYNTHS') baseFileName = 'synths_preview';
-        else if (nameUpper === 'INSTRUMENTAL') baseFileName = 'inst_preview';
-        else baseFileName = `${stemName.toLowerCase()}_preview`;
-
-        try {
-            const { getDownloadURL, ref } = await import('firebase/storage');
-            const { storage } = await import('@/lib/firebase');
-
-            const tryPath = async (ext: string) => {
-                const fullPath = `vault/previews/${baseFileName}${ext}`;
-                try {
-                    const url = await getDownloadURL(ref(storage, fullPath));
-                    console.log(`[TRANSMISSION LOG] Verified Path: ${fullPath} -> ${url.split('?')[0]}`);
-                    return url;
-                } catch (e) {
-                    console.log(`[TRANSMISSION LOG] Checked ${fullPath}, not found.`);
-                    return null;
-                }
-            };
-
-            // Pathfinder loop
-            let url = await tryPath('.mp3');
-            if (!url) url = await tryPath('.wav');
-            if (!url) url = await tryPath('.WAV');
-            if (!url) url = await tryPath('.MP3');
-
-            if (!url) {
-                throw new Error("Handshake failed. File does not exist with any valid extension.");
-            }
-
-            const audio = new Audio(url);
-            audioRef.current = audio;
-            audio.play();
-            setPlayingStem(stemName);
-            setPreviewLoading(null);
-
-            audio.onended = () => {
-                setPlayingStem(null);
-            };
-        } catch (error) {
-            console.error(`[TRANSMISSION LOG] Final Handshake Error:`, error);
-            setPreviewError("Preview unavailable. Handshake failed to locate the transmission file.");
-            setPreviewLoading(null);
-            setPlayingStem(null);
-        }
-    };
-
     return (
         <div className="bg-[#000000] text-slate-100 font-display min-h-screen flex flex-col overflow-x-hidden selection:bg-white selection:text-black">
             <SystemAlert />
@@ -249,7 +171,7 @@ DARK INDUSTRIAL PHONK X FREDDIE GIBBS FLOW. 150 BPM. DISTORTED 808s, GLITCHED HI
                                     <span className="text-xs text-slate-500 uppercase tracking-widest">XP Level</span>
                                     <div className="flex items-center gap-2">
                                         <span className="material-symbols-outlined text-sm text-yellow-500">bolt</span>
-                                        <span className="text-lg font-bold text-white">{userDoc?.xp.total || 0}</span>
+                                        <span className="text-lg font-bold text-white">{userDoc?.xp?.total ?? 500}</span>
                                     </div>
                                 </div>
                                 <div className="flex flex-col gap-1 relative">
@@ -257,13 +179,13 @@ DARK INDUSTRIAL PHONK X FREDDIE GIBBS FLOW. 150 BPM. DISTORTED 808s, GLITCHED HI
                                     <div className="flex items-center gap-2">
                                         <span className="material-symbols-outlined text-sm text-green-500">database</span>
                                         <span className={`text-lg font-bold text-white ${justDeducted ? 'animate-credits-drop' : ''}`}>
-                                            {userDoc?.credits ?? 0}
+                                            {userDoc?.credits ?? 20}
                                         </span>
                                     </div>
                                     {/* Flash Deduction */}
                                     {justDeducted && (
                                         <div className="absolute top-8 left-6 text-red-500 text-xs font-mono font-bold animate-[flash_2s_ease-out_forwards]">
-                                            -25
+                                            -10
                                         </div>
                                     )}
                                 </div>
@@ -273,7 +195,7 @@ DARK INDUSTRIAL PHONK X FREDDIE GIBBS FLOW. 150 BPM. DISTORTED 808s, GLITCHED HI
                                 <div className="flex items-center gap-2">
                                     <span className="material-symbols-outlined text-sm text-blue-400">monitoring</span>
                                     <span className="text-xl font-bold font-mono tracking-widest text-[#E2E8F0]">
-                                        {(Math.log10((userDoc?.xp.total || 0) + 1) * 20).toFixed(1)}
+                                        {(Math.log10((userDoc?.xp?.total ?? 500) + 1) * 20).toFixed(1)}
                                     </span>
                                 </div>
                             </div>
@@ -333,61 +255,9 @@ DARK INDUSTRIAL PHONK X FREDDIE GIBBS FLOW. 150 BPM. DISTORTED 808s, GLITCHED HI
                             </div>
                         </header>
                         <div className="flex-1 overflow-y-auto">
-                            {/* Gated Stems Section */}
-                            <section className="p-6 md:p-10 lg:p-16">
-                                <div className="flex items-center justify-between mb-8 max-w-6xl mx-auto border-l-2 border-white pl-4">
-                                    <h2 className="text-lg font-bold uppercase tracking-[0.3em] text-white">Gated Stems</h2>
-                                    <span className="text-[10px] text-slate-500 uppercase tracking-widest font-mono">Series: Handout_2026</span>
-                                </div>
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8 max-w-6xl mx-auto">
-                                    {[
-                                        { title: 'Drums', file: 'STEM_FILE_01.WAV', img: "https://lh3.googleusercontent.com/aida-public/AB6AXuD9LC0I08unnfrnQSzMPqY0--dn0V5HdDMRKNJ9le1Ixuoe1Wb28SGIYrQ5yUPZKWQKdas6Qo_qa2lEwHVk3QAG2Mg1iIZTCJTuP4y6HLyBo1Or-dIgMqWxiJTCUvgWbvLtVHEbD4FF0kt1TX-ZV59-GL8Kb7DVppn_HLLlhyWlNDnzivKknCO8z7JdyceB-plJbHz015GKOSl0OiG3l5lFf51vBkcoH9edkQKy00cQUhileEzO1ebX5pSVX9bLMsuyVpTQGPjq09Y" },
-                                        { title: 'Bass', file: 'STEM_FILE_02.WAV', img: "https://lh3.googleusercontent.com/aida-public/AB6AXuBYvm7ZZvozth3hIUIKlKeXZnXItW8prQSbKBb-uilqt7XsURZf8XPpdbtS3v3iJzYlzsQgVTFGK5aEoOXDKwgzK-oti8KvLuapewzT0OHRYq6z4Cf7q1Ywze8GryN2obc2-7gYzkF_MYdhEJwXUR-0H-JyCb36ieQQDKdKMB3IxmTwKBdZx8HBER5zc0gSQ8mdzrKFLtkeQMjuRCaZ1rXYDHy4nAklcohOY9Bz_2WS_vMEqeu4sv_ZZx8ewS9s9EMBBhmbkbjN888" },
-                                        { title: 'Synths', file: 'STEM_FILE_03.WAV', img: "https://lh3.googleusercontent.com/aida-public/AB6AXuCFQhPoMjFkWrCcJKOdl3Be8FH20GZ2u1LVs7RI3Jff2eczjh3hUACmwLNG64iSsxqA02A94skHH1xEuAiNmDEFmenH_fMb4AvOrCC47ztMpMPcodK5RNY4GNcZeRoMhdm5I4gniTrC8H4ZPWoikS2XvWnKVDD_OOCIeJFJiIVTd_6pu6DoXSAoXQyc7aqTCZFlYduBuukGsA95MhIVepBcDBO1-rq7VhV6I1LwdyqdmMxCmwjmSzV4eW4dvZQ6Il4QBEwBnmc7s5w" },
-                                        { title: 'Instrumental', file: 'HANDOUT_INSTRUMENTAL.WAV', img: "https://lh3.googleusercontent.com/aida-public/AB6AXuB2eD6j_2z0oXGfOeyxYZR_oKXXH2T5bHIn_2kU3o6v23XgW8VqT7Ym8e8mFk9Vl8J5c4n8w3s0z5Q1l4t1QXV1S5P_1E_1t_4g6g2f9k4s0D3Y_p2D_8e1e_0R_F_s_50M2v3N3s2Y8L2x4f9X6D3z2O1D04" }
-                                    ].map((stem, index) => (
-                                        <div key={index} className="relative overflow-hidden rounded-lg border border-white/10 aspect-[3/4] flex flex-col justify-end p-6 bg-black/50 transition-all duration-300 hover:border-white/30 group">
-                                            <div className="absolute inset-0 w-full h-full bg-cover bg-center opacity-50 blur-[15px] grayscale" style={{ backgroundImage: `url('${stem.img}')` }}></div>
-                                            <div className="relative z-10 flex flex-col h-full items-center justify-center text-center gap-6 p-4">
-                                                {!hasStandardAccess && (
-                                                    <div className="size-16 rounded-full bg-black/80 border border-white/20 flex items-center justify-center backdrop-blur-md mb-2">
-                                                        <span className="material-symbols-outlined text-3xl text-white">lock</span>
-                                                    </div>
-                                                )}
-                                                <div className="space-y-1">
-                                                    <h3 className="text-3xl font-bold uppercase tracking-widest text-white">{stem.title}</h3>
-                                                    <p className="text-xs text-slate-300 font-mono tracking-wider">{stem.file}</p>
-                                                </div>
-                                                <div className="w-full border-t border-white/20 my-2"></div>
-                                                <div className="flex flex-col gap-3 w-full">
-                                                    <button
-                                                        onClick={() => handleUnlockStem(stem.title)}
-                                                        disabled={systemStatus.maintenance_mode && !isOwned(stem.title.toUpperCase())}
-                                                        className={`w-full py-3 text-xs font-bold uppercase tracking-[0.15em] transition-colors ${systemStatus.maintenance_mode && !isOwned(stem.title.toUpperCase()) ? 'bg-slate-500 text-slate-200 cursor-not-allowed grayscale border border-slate-500' : isOwned(stem.title.toUpperCase()) ? 'bg-black text-white border border-white hover:bg-white hover:text-black' : 'bg-white text-black hover:bg-slate-200'}`}
-                                                    >
-                                                        {isOwned(stem.title.toUpperCase()) ? 'DOWNLOAD .WAV' : '50 Credits To Unlock'}
-                                                    </button>
-                                                    {!isOwned(stem.title.toUpperCase()) && (
-                                                        <span className="text-[10px] uppercase tracking-widest text-slate-400">or Unlimited Access (Standard Tier)</span>
-                                                    )}
-                                                </div>
-                                            </div>
-                                            <button
-                                                onClick={() => handlePlayPreview(stem.title)}
-                                                disabled={previewLoading === stem.title}
-                                                className={`absolute top-4 right-4 z-20 ${previewLoading === stem.title ? 'w-auto px-4 h-10' : 'size-10'} rounded-full border border-white/20 flex items-center justify-center transition-all group-hover:scale-110 ${playingStem === stem.title ? 'bg-white text-black' : 'bg-black/60 text-white hover:bg-white hover:text-black'} ${previewLoading === stem.title ? 'opacity-80 cursor-wait' : ''}`}
-                                            >
-                                                {previewLoading === stem.title ? (
-                                                    <span className="text-[9px] font-bold uppercase tracking-[0.2em] animate-pulse whitespace-nowrap text-green-500">Retrying Transmission...</span>
-                                                ) : (
-                                                    <span className="material-symbols-outlined text-xl">
-                                                        {playingStem === stem.title ? 'stop' : 'play_arrow'}
-                                                    </span>
-                                                )}
-                                            </button>
-                                        </div>
-                                    ))}
-                                </div>
+                            {/* Remix Promo Section */}
+                            <section className="p-6 md:p-10 lg:p-16 w-full">
+                                <RemixPromoBanner />
 
                                 {/* Handout Bundle Card */}
                                 <div className="max-w-6xl mx-auto mt-8 relative overflow-hidden rounded-lg border border-white/10 bg-black/50 p-6 md:p-10 transition-all duration-300 hover:border-white/30 group">
@@ -423,24 +293,24 @@ DARK INDUSTRIAL PHONK X FREDDIE GIBBS FLOW. 150 BPM. DISTORTED 808s, GLITCHED HI
                                             <p className="text-xs text-slate-500 uppercase tracking-widest mt-2">AI-DRIVEN SONIC ARCHITECTURE</p>
                                         </div>
                                         <div className="px-3 py-1.5 border border-white/20 bg-black text-white text-[10px] font-bold uppercase tracking-[0.2em]">
-                                            COST: 25 CREDITS
+                                            COST: 10 CREDITS
                                         </div>
                                     </div>
                                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
                                         <div className="lg:col-span-7 flex flex-col gap-4">
-                                            <div className="bg-white p-1">
+                                            <div className="bg-black border border-white p-1">
                                                 <div className="flex flex-col md:flex-row">
                                                     <input
                                                         type="text"
                                                         value={promptInput}
                                                         onChange={(e) => setPromptInput(e.target.value)}
                                                         placeholder="DESCRIBE THE VIBE (e.g. Gritty 90s boom bap with distorted bass)"
-                                                        className="bg-white text-black border-none focus:ring-0 placeholder-black/40 uppercase tracking-widest text-sm font-bold w-full py-4 px-6 outline-none"
+                                                        className="bg-black text-white border-none focus:ring-0 placeholder-white/40 uppercase tracking-widest text-sm font-bold w-full py-4 px-6 outline-none"
                                                     />
                                                     <button
                                                         onClick={handleGenerate}
                                                         disabled={isGenerating || !promptInput.trim() || systemStatus.maintenance_mode}
-                                                        className={`bg-black text-white px-8 py-4 text-xs font-bold uppercase tracking-[0.2em] transition-colors whitespace-nowrap border-l border-white/10 ${systemStatus.maintenance_mode ? 'bg-slate-600 grayscale cursor-not-allowed text-slate-300' : 'hover:bg-zinc-800 disabled:opacity-50'}`}
+                                                        className={`bg-white text-black px-8 py-4 text-xs font-bold uppercase tracking-[0.2em] transition-colors whitespace-nowrap border-l border-white/10 ${systemStatus.maintenance_mode ? 'bg-slate-600 grayscale cursor-not-allowed text-slate-300' : 'hover:bg-slate-200 disabled:opacity-50'}`}
                                                     >
                                                         {isGenerating ? 'Synthesizing...' : 'Generate Prompt'}
                                                     </button>
@@ -468,7 +338,7 @@ DARK INDUSTRIAL PHONK X FREDDIE GIBBS FLOW. 150 BPM. DISTORTED 808s, GLITCHED HI
                                                         {justDeducted && (
                                                             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 pointer-events-none w-full px-6 flex justify-center">
                                                                 <div className="bg-white text-black py-2 px-4 text-center animate-[flash_2s_ease-out_forwards] shadow-lg">
-                                                                    <span className="text-xs font-bold uppercase tracking-widest">PROMPT ARCHITECTED: -25 CREDITS</span>
+                                                                    <span className="text-xs font-bold uppercase tracking-widest">PROMPT ARCHITECTED: -10 CREDITS</span>
                                                                 </div>
                                                             </div>
                                                         )}
@@ -486,7 +356,7 @@ DARK INDUSTRIAL PHONK X FREDDIE GIBBS FLOW. 150 BPM. DISTORTED 808s, GLITCHED HI
                                                 ) : (
                                                     <div className="relative z-10 flex flex-col items-center justify-center w-full h-full gap-3">
                                                         <span className="material-symbols-outlined text-white/40 text-2xl">lock_clock</span>
-                                                        <span className="text-[10px] text-white/60 uppercase tracking-[0.3em] font-bold">Results Ready</span>
+                                                        <span className="text-[10px] text-white/60 uppercase tracking-[0.3em] font-bold">RESULTS READY</span>
                                                     </div>
                                                 )}
                                             </div>
@@ -498,27 +368,6 @@ DARK INDUSTRIAL PHONK X FREDDIE GIBBS FLOW. 150 BPM. DISTORTED 808s, GLITCHED HI
                         <footer className="relative z-10 flex flex-col gap-6 px-10 py-8 text-center border-t border-white/5 bg-black/40 backdrop-blur-sm">
                             <p className="text-slate-500 text-[10px] font-normal leading-normal uppercase tracking-[0.4em]">© 2026 HANDOUT MUSIC DROP</p>
                         </footer>
-
-                        {/* PREVIEW ERROR MODAL */}
-                        {previewError && (
-                            <div className="absolute inset-0 z-[100] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 text-center animate-in fade-in zoom-in duration-300">
-                                <div className="border border-red-500 bg-black p-8 max-w-md w-full relative overflow-hidden shadow-[0_0_50px_rgba(239,68,68,0.2)]">
-                                    <div className="absolute top-0 left-0 w-full h-1 bg-red-500 animate-pulse"></div>
-                                    <span className="material-symbols-outlined text-red-500 text-6xl mb-6">warning</span>
-                                    <h2 className="text-3xl font-black text-red-500 uppercase tracking-widest mb-4">Signal Lost</h2>
-                                    <div className="font-mono text-sm text-white/80 mb-8 border border-white/10 bg-white/5 p-4 uppercase">
-                                        {previewError}
-                                    </div>
-                                    <button
-                                        onClick={() => setPreviewError(null)}
-                                        className="px-8 py-4 bg-red-500 text-black font-bold uppercase tracking-widest hover:bg-red-400 transition-colors w-full shadow-[0_0_20px_rgba(239,68,68,0.4)]"
-                                    >
-                                        Acknowledge
-                                    </button>
-                                </div>
-                            </div>
-                        )}
-
                     </main>
                 </div>
             </div>
