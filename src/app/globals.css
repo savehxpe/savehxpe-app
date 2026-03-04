@@ -47,3 +47,33 @@
 .animate-rhythm-pulse {
   animation: rhythmPulse 526.32ms ease-out infinite;
 }
+
+/* ─── GLOBAL INTERACTIVE HOVER FLASH ─── */
+button,
+a,
+[role="button"],
+.cursor-pointer {
+  transition: all 0.15s ease;
+}
+
+button:hover,
+a:hover,
+[role="button"]:hover,
+.cursor-pointer:hover {
+  border-color: #22d3ee !important;
+  background-color: rgba(255, 255, 255, 0.05);
+  box-shadow: 0 0 12px rgba(34, 211, 238, 0.15), inset 0 0 8px rgba(34, 211, 238, 0.05);
+}
+
+button:active,
+a:active,
+[role="button"]:active {
+  transform: scale(0.97);
+  transition: transform 0.05s ease;
+}
+
+/* scanline-bg utility */
+.scanline-bg {
+  background: linear-gradient(to bottom, transparent 50%, rgba(255, 255, 255, 0.02) 50%);
+  background-size: 100% 4px;
+}

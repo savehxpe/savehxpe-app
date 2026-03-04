@@ -1,9 +1,16 @@
 'use client';
 
 import { useSystemStatus } from '@/hooks/useSystemStatus';
+import { useEffect, useState } from 'react';
 
 export default function SystemAlert() {
     const { systemStatus, loadingStatus } = useSystemStatus();
+    const [now, setNow] = useState<number | null>(null);
+
+    useEffect(() => {
+        const t = setTimeout(() => setNow(Date.now()), 0);
+        return () => clearTimeout(t);
+    }, []);
 
     if (loadingStatus) return null;
 
@@ -19,7 +26,7 @@ export default function SystemAlert() {
     }
 
     const RESTORE_WINDOW = 60 * 60 * 1000; // 60 minutes
-    const isRecentlyRestored = systemStatus.last_restored_at && (Date.now() - systemStatus.last_restored_at) <= RESTORE_WINDOW;
+    const isRecentlyRestored = now !== null && systemStatus.last_restored_at && (now - systemStatus.last_restored_at) <= RESTORE_WINDOW;
 
     if (isRecentlyRestored) {
         return (

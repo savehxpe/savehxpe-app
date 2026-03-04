@@ -10,8 +10,9 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    // ── USER DOCUMENTS ──
+    // Allow users to read and write ONLY their own document (for Ante transactions, credits, XP)
     match /users/{userId} {
-      // Allow user to read their own data
       allow read: if isOwner(userId);
       
       // Allow user to update specific fields ONLY
@@ -43,6 +44,28 @@ service cloud.firestore {
       }
     }
     
+    // ── SYSTEM STATUS ──
+    // The useSystemStatus hook reads from config/system_status
+    // Allow any authenticated user to read config collection
+    match /config/{document=**} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    // ── GLOBAL STANDING ──
+    // Allow any authenticated user to read global standings (leaderboards, rankings)
+    match /global_standing/{document=**} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    // ── SYSTEM STATUS (legacy path) ──
+    match /system_status/{document=**} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    // ── SYSTEM CONFIG (legacy path) ──
     match /system_config/{configId} {
       allow read: if true;
       allow write: if false;

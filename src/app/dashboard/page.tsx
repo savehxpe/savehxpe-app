@@ -366,7 +366,7 @@ DARK INDUSTRIAL PHONK X FREDDIE GIBBS FLOW. 150 BPM. DISTORTED 808s, GLITCHED HI
                             </section>
                         </div>
                         <footer className="relative z-10 flex flex-col gap-6 px-10 py-8 text-center border-t border-white/5 bg-black/40 backdrop-blur-sm">
-                            <p className="text-slate-500 text-[10px] font-normal leading-normal uppercase tracking-[0.4em]">© 2026 HANDOUT MUSIC DROP</p>
+                            <p className="text-slate-500 text-[10px] font-normal leading-normal uppercase tracking-[0.4em]">© 2026 OUTWORLD LLC.</p>
                         </footer>
                     </main>
                 </div>

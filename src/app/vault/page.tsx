@@ -226,7 +226,7 @@ export default function VaultExplorer() {
                     </span>
                 </div>
                 <div className="font-mono text-[10px] uppercase tracking-widest text-center md:text-right">
-                    <p>© 2026 SAVEHXPE. All Rights Reserved.</p>
+                    <p className="text-[10px] uppercase tracking-[0.4em]">© 2026 OUTWORLD LLC.</p>
                     <p className="text-black/40 mt-1">ID: 8X-9902-{isPremium ? 'PREM' : 'GUEST'}</p>
                 </div>
             </footer>

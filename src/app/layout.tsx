@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import { Space_Grotesk, Geist_Mono } from 'next/font/google';
 import './globals.css';
 import { AuthProvider } from '@/hooks/useAuth';
+import CursorWrapper from '@/components/CursorWrapper';
 
 const spaceGrotesk = Space_Grotesk({
   subsets: ['latin'],
@@ -16,8 +17,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'saveHXPE — The Outworld',
-  description: 'Join the Outworld. Unlock the vault. Earn XP. Own your experience.',
+  title: 'saveHXPE — Outworld LLC Ecosystem',
+  description: 'Welcome to the Outworld LLC Ecosystem. Unlock the vault. Earn XP. Own your experience.',
   icons: {
     icon: '/favicon.ico',
   },
@@ -40,6 +41,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
       </head>
       <body className="antialiased">
+        <CursorWrapper />
         <AuthProvider>
           {children}
         </AuthProvider>

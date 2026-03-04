@@ -19,7 +19,11 @@ function pad(n: number): string {
 }
 
 export default function TrialCountdown({ trialEndsAt }: TrialCountdownProps) {
-    const [remaining, setRemaining] = useState<number | null>(null);
+    const [remaining, setRemaining] = useState<number | null>(() => {
+        if (!trialEndsAt) return null;
+        const endMs = trialEndsAt._seconds * 1000;
+        return Math.max(0, Math.floor((endMs - Date.now()) / 1000));
+    });
 
     useEffect(() => {
         if (!trialEndsAt) return;
@@ -30,10 +34,6 @@ export default function TrialCountdown({ trialEndsAt }: TrialCountdownProps) {
             const diff = Math.max(0, Math.floor((endMs - Date.now()) / 1000));
             setRemaining(diff);
         }, 1000);
-
-        // Set initial
-        const diff = Math.max(0, Math.floor((endMs - Date.now()) / 1000));
-        setRemaining(diff);
 
         return () => clearInterval(interval);
     }, [trialEndsAt]);

@@ -1,57 +1,128 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { Canvas, useFrame } from '@react-three/fiber';
-import { Dodecahedron, Octahedron, Environment } from '@react-three/drei';
-import * as THREE from 'three';
 
-function RotatingCore({ isLoaded }: { isLoaded: boolean }) {
-  const meshRef = useRef<THREE.Mesh>(null);
-  const outerMeshRef = useRef<THREE.Mesh>(null);
+// --- Native Canvas 2D Rotating Core ---
+function Canvas2DCore({ isLoaded }: { isLoaded: boolean }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const animRef = useRef<number>(0);
+  const angleRef = useRef(0);
 
-  useFrame((state, delta) => {
-    if (meshRef.current) {
-      meshRef.current.rotation.x += delta * (isLoaded ? 2.5 : 0.5);
-      meshRef.current.rotation.y += delta * (isLoaded ? 2.5 : 0.6);
+  const draw = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
 
-      if (isLoaded) {
-        meshRef.current.scale.lerp(new THREE.Vector3(2, 2, 2), 0.1);
-      }
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    ctx.scale(dpr, dpr);
+
+    ctx.clearRect(0, 0, w, h);
+
+    const cx = w / 2;
+    const cy = h / 2;
+    const baseRadius = Math.min(w, h) * 0.28;
+    const speed = isLoaded ? 0.04 : 0.012;
+    angleRef.current += speed;
+    const angle = angleRef.current;
+
+    // Scaling animation when loaded
+    const scaleFactor = isLoaded ? Math.min(1.6, 1 + (angle - Math.PI) * 0.05) : 1;
+    const radius = baseRadius * Math.max(1, scaleFactor);
+
+    // --- Draw outer wireframe dodecahedron (projected 2D) ---
+    const outerRadius = radius * 1.5;
+    const outerSides = 12;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(75, 85, 99, 0.4)';
+    ctx.lineWidth = 1;
+    ctx.translate(cx, cy);
+    ctx.rotate(-angle * 0.6);
+    ctx.beginPath();
+    for (let i = 0; i <= outerSides; i++) {
+      const a = (i / outerSides) * Math.PI * 2;
+      const px = Math.cos(a) * outerRadius;
+      const py = Math.sin(a) * outerRadius;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
     }
-    if (outerMeshRef.current) {
-      outerMeshRef.current.rotation.x -= delta * (isLoaded ? 1.5 : 0.3);
-      outerMeshRef.current.rotation.y -= delta * (isLoaded ? 1.5 : 0.4);
+    ctx.closePath();
+    ctx.stroke();
 
-      if (isLoaded) {
-        outerMeshRef.current.scale.lerp(new THREE.Vector3(3, 3, 3), 0.1);
-      }
+    // Cross-connections for wireframe look
+    for (let i = 0; i < outerSides; i += 2) {
+      const a1 = (i / outerSides) * Math.PI * 2;
+      const a2 = ((i + Math.floor(outerSides / 2)) / outerSides) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a1) * outerRadius, Math.sin(a1) * outerRadius);
+      ctx.lineTo(Math.cos(a2) * outerRadius, Math.sin(a2) * outerRadius);
+      ctx.stroke();
     }
-  });
+    ctx.restore();
+
+    // --- Draw inner solid octahedron (projected 2D as diamond) ---
+    const innerSides = 8;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(angle);
+
+    // Fill
+    ctx.fillStyle = isLoaded ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.7)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (let i = 0; i <= innerSides; i++) {
+      const a = (i / innerSides) * Math.PI * 2;
+      const r = radius * (1 + 0.08 * Math.sin(a * 3 + angle * 2));
+      const px = Math.cos(a) * r;
+      const py = Math.sin(a) * r;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Inner cross lines for depth
+    for (let i = 0; i < innerSides; i += 2) {
+      const a1 = (i / innerSides) * Math.PI * 2;
+      const a2 = ((i + innerSides / 2) / innerSides) * Math.PI * 2;
+      const r1 = radius * (1 + 0.08 * Math.sin(a1 * 3 + angle * 2));
+      const r2 = radius * (1 + 0.08 * Math.sin(a2 * 3 + angle * 2));
+      ctx.beginPath();
+      ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+      ctx.moveTo(Math.cos(a1) * r1, Math.sin(a1) * r1);
+      ctx.lineTo(Math.cos(a2) * r2, Math.sin(a2) * r2);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Glow effect
+    const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, outerRadius * 1.2);
+    gradient.addColorStop(0, isLoaded ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.03)');
+    gradient.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, w, h);
+
+    animRef.current = requestAnimationFrame(draw);
+  }, [isLoaded]);
+
+  useEffect(() => {
+    animRef.current = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(animRef.current);
+  }, [draw]);
 
   return (
-    <group>
-      {/* Inner solid core */}
-      <Octahedron ref={meshRef} args={[1, 0]}>
-        <meshStandardMaterial
-          color="#ffffff"
-          roughness={0.2}
-          metalness={0.8}
-        />
-      </Octahedron>
-
-      {/* Outer wireframe shell */}
-      <Dodecahedron ref={outerMeshRef} args={[1.5, 0]}>
-        <meshStandardMaterial
-          color="#4b5563"
-          wireframe={true}
-          transparent
-          opacity={0.4}
-        />
-      </Dodecahedron>
-      <ambientLight intensity={0.5} />
-      <directionalLight position={[10, 10, 5]} intensity={1.5} />
-    </group>
+    <canvas
+      ref={canvasRef}
+      className="w-full h-full"
+      style={{ width: '100%', height: '100%' }}
+    />
   );
 }
 
@@ -67,7 +138,6 @@ export default function SplashLoading() {
           clearInterval(interval);
           return 100;
         }
-        // Jumpy, unpredictable progress for that glitchy feel
         return p + Math.floor(Math.random() * 20) + 2;
       });
     }, 250);
@@ -77,7 +147,6 @@ export default function SplashLoading() {
 
   useEffect(() => {
     if (isLoaded) {
-      // Small delay after hitting 100% to show speedup animation and flash
       setTimeout(() => {
         router.push('/identity');
       }, 1200);
@@ -92,7 +161,7 @@ export default function SplashLoading() {
         <div className="w-full h-full absolute opacity-20 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-white/10 via-transparent to-transparent"></div>
       </div>
 
-      {/* Screen Glitch Effect just upon loading */}
+      {/* Screen Glitch Effect */}
       {isLoaded && <div className="absolute inset-0 bg-white/10 z-50 animate-[flash_0.1s_ease-out_3]"></div>}
 
       <main className="flex flex-1 flex-col relative justify-center items-center px-4 py-12 lg:py-20 w-full z-10">
@@ -103,12 +172,9 @@ export default function SplashLoading() {
             <p className="text-slate-500 text-xs md:text-sm uppercase tracking-[0.4em] font-medium">Outworld System v2.0</p>
           </div>
 
-          {/* React Three Fiber Canvas */}
+          {/* Native Canvas 2D Core */}
           <div className="w-64 h-64 md:w-80 md:h-80 relative flex items-center justify-center">
-            <Canvas camera={{ position: [0, 0, 4] }}>
-              <RotatingCore isLoaded={isLoaded} />
-              <Environment preset="city" />
-            </Canvas>
+            <Canvas2DCore isLoaded={isLoaded} />
           </div>
 
           <div className="w-full max-w-xs space-y-6">

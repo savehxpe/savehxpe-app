@@ -42,7 +42,7 @@ export default function TrialActivation() {
                         </div>
                     </main>
                     <footer className="relative z-0 flex flex-col gap-6 px-5 py-8 text-center border-t border-white/5 opacity-20">
-                        <p className="text-[#555555] text-xs font-normal uppercase tracking-widest">© 2026 HANDOUT MUSIC DROP</p>
+                        <p className="text-[#555555] text-[10px] font-normal uppercase tracking-[0.4em]">© 2026 OUTWORLD LLC.</p>
                     </footer>
                 </div>
             </div>

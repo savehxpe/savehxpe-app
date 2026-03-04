@@ -133,7 +133,7 @@ export default function AscensionPortal() {
                         </div>
                     </main>
                     <footer className="relative flex flex-col gap-6 px-5 py-8 text-center border-t border-white/5 bg-black/80 backdrop-blur-sm filter blur-[2px] opacity-50 pointer-events-none mt-auto">
-                        <p className="text-[#555555] text-xs font-normal leading-normal uppercase tracking-widest">© 2026 HANDOUT MUSIC DROP</p>
+                        <p className="text-[#555555] text-[10px] font-normal leading-normal uppercase tracking-[0.4em]">© 2026 OUTWORLD LLC.</p>
                     </footer>
                 </div>
 

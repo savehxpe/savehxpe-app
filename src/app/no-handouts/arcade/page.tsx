@@ -5,9 +5,6 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { doc, runTransaction, getDocs, collection, query, orderBy, limit, arrayUnion, updateDoc, increment } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { Canvas, useFrame } from '@react-three/fiber';
-import { Instances, Instance } from '@react-three/drei';
-import * as THREE from 'three';
 import SystemAlert from '@/components/SystemAlert';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
 import html2canvas from 'html2canvas';
@@ -18,33 +15,91 @@ const FALL_DURATION_MS = 2000;
 const HIT_ZONE_Y = 85;
 const HIT_TOLERANCE = 12;
 
-// --- 3D CORRIDOR: Instanced Mesh for mobile performance ---
-function InstancedCorridor({ isPro }: { isPro: boolean }) {
-    const color = isPro ? '#aaaaaa' : '#00ffff'; // Monochrome for PRO, Cyan for STANDARD
-    const instancesRef = useRef<THREE.InstancedMesh>(null);
+// --- Native Canvas 2D Corridor Background ---
+function CanvasCorridor({ isPro }: { isPro: boolean }) {
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const animRef = useRef<number>(0);
+    const offsetRef = useRef(0);
 
-    useFrame((state) => {
-        if (instancesRef.current) {
-            // Move corridor towards camera to simulate speed
-            instancesRef.current.position.z = (state.clock.elapsedTime * (isPro ? 25 : 15)) % 10;
+    const draw = useCallback(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        const dpr = window.devicePixelRatio || 1;
+        const w = canvas.clientWidth;
+        const h = canvas.clientHeight;
+        canvas.width = w * dpr;
+        canvas.height = h * dpr;
+        ctx.scale(dpr, dpr);
+        ctx.clearRect(0, 0, w, h);
+
+        const color = isPro ? 'rgba(170,170,170,' : 'rgba(0,255,255,';
+        const speed = isPro ? 2.5 : 1.5;
+        offsetRef.current += speed;
+
+        const vpX = w / 2;
+        const vpY = h * 0.35;
+        const numLines = 50;
+        const spacing = 40;
+        const depth = offsetRef.current % spacing;
+
+        ctx.lineWidth = 1;
+
+        // Left & right wall lines
+        for (let side = -1; side <= 1; side += 2) {
+            for (let i = 0; i < numLines; i++) {
+                const t = (i * spacing + depth) / (numLines * spacing);
+                const alpha = Math.max(0, 0.6 - t * 0.8);
+                ctx.strokeStyle = `${color}${alpha})`;
+                const x = vpX + side * (vpX * 0.8) * (1 - t);
+                const y1 = vpY + (h - vpY) * (1 - t) * 0.3;
+                const y2 = vpY + (h - vpY) * (1 - t);
+                ctx.beginPath();
+                ctx.moveTo(x, y1);
+                ctx.lineTo(x, y2);
+                ctx.stroke();
+            }
         }
-    });
+
+        // Horizontal cross-beams
+        for (let i = 0; i < 20; i++) {
+            const t = ((i * spacing * 2.5) + depth * 2) % (numLines * spacing) / (numLines * spacing);
+            const alpha = Math.max(0, 0.4 - t * 0.6);
+            ctx.strokeStyle = `${color}${alpha})`;
+            const yPos = vpY + (h - vpY) * (1 - t);
+            const spread = (vpX * 0.8) * (1 - t);
+            ctx.beginPath();
+            ctx.moveTo(vpX - spread, yPos);
+            ctx.lineTo(vpX + spread, yPos);
+            ctx.stroke();
+        }
+
+        // Perspective convergence lines
+        for (let i = 0; i < 6; i++) {
+            const frac = (i - 2.5) / 5;
+            ctx.strokeStyle = `${color}0.08)`;
+            ctx.beginPath();
+            ctx.moveTo(vpX + frac * w * 0.8, h);
+            ctx.lineTo(vpX, vpY);
+            ctx.stroke();
+        }
+
+        animRef.current = requestAnimationFrame(draw);
+    }, [isPro]);
+
+    useEffect(() => {
+        animRef.current = requestAnimationFrame(draw);
+        return () => cancelAnimationFrame(animRef.current);
+    }, [draw]);
 
     return (
-        <Instances ref={instancesRef} limit={100} range={100}>
-            <boxGeometry args={[0.5, 20, 0.5]} />
-            <meshBasicMaterial color={color} wireframe={true} />
-            {Array.from({ length: 100 }).map((_, i) => (
-                <Instance
-                    key={i}
-                    position={[
-                        (i % 2 === 0 ? -6 : 6),
-                        (Math.random() - 0.5) * 15,
-                        -Math.floor(i / 2) * 5
-                    ]}
-                />
-            ))}
-        </Instances>
+        <canvas
+            ref={canvasRef}
+            className="absolute inset-0 w-full h-full"
+            style={{ width: '100%', height: '100%' }}
+        />
     );
 }
 
@@ -411,12 +466,9 @@ export default function ArcadeMissionSector() {
     return (
         <div className={`min-h-screen flex flex-col overflow-hidden selection:bg-white selection:text-black font-display ${mode === 'PRO' ? 'bg-[#050505]' : 'bg-black'}`}>
             <SystemAlert />
-            {/* 3D Wireframe Scene */}
+            {/* Native Canvas 2D Wireframe Corridor */}
             <div className="absolute inset-0 z-0">
-                <Canvas camera={{ position: [0, 2, 5], fov: 75 }}>
-                    <ambientLight intensity={0.5} />
-                    <InstancedCorridor isPro={mode === 'PRO'} />
-                </Canvas>
+                <CanvasCorridor isPro={mode === 'PRO'} />
             </div>
 
             <header className="w-full border-b border-white/20 px-6 py-4 flex justify-between items-center z-20 bg-black/80 backdrop-blur-md sticky top-0 relative">

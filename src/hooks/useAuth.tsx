@@ -6,11 +6,12 @@ import {
     signInWithEmailAndPassword,
     createUserWithEmailAndPassword,
     signOut,
-    signInWithPopup,
+    signInWithRedirect,
+    getRedirectResult,
     GoogleAuthProvider,
     User as FirebaseUser,
 } from 'firebase/auth';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { doc, onSnapshot, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
 
 // ── Firestore User Document Type (matches architecture spec) ──
@@ -80,6 +81,54 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const [userDoc, setUserDoc] = useState<UserDocument | null>(null);
     const [loading, setLoading] = useState(true);
 
+    // ── Handle redirect result on mount (for signInWithRedirect) ──
+    useEffect(() => {
+        getRedirectResult(auth)
+            .then(async (result) => {
+                if (result?.user) {
+                    const user = result.user;
+                    const userRef = doc(db, 'users', user.uid);
+                    const userDocSnap = await getDoc(userRef);
+
+                    if (!userDocSnap.exists()) {
+                        try {
+                            await setDoc(userRef, {
+                                uid: user.uid,
+                                email: user.email || '',
+                                name: user.displayName || '',
+                                createdAt: new Date(),
+                                lastLogin: new Date(),
+                                stripeCustomerId: '',
+                                tier: {
+                                    current: 'FREE',
+                                    previous: null,
+                                    updatedAt: new Date(),
+                                    manualApprovalFlag: false,
+                                },
+                                subscriptionStatus: {
+                                    status: 'none',
+                                },
+                                trialEndsAt: null,
+                                credits: 125,
+                                xp: {
+                                    total: 500,
+                                    multiplier: 1,
+                                    lastUpdated: new Date()
+                                },
+                                collectibles: [],
+                                engagementScore: 0,
+                            }, { merge: true });
+                        } catch (err) {
+                            console.error('Failed to initialize economy for Google Sign-in citizen:', err);
+                        }
+                    }
+                }
+            })
+            .catch((error) => {
+                console.error('Redirect result error:', error);
+            });
+    }, []);
+
     // ── Auth state listener ──
     useEffect(() => {
         const unsubAuth = onAuthStateChanged(auth, (user) => {
@@ -123,8 +172,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const signup = async (email: string, password: string, name?: string) => {
         const { user } = await createUserWithEmailAndPassword(auth, email, password);
-        // Initialize the economy variables for this new citizen
-        const { setDoc } = await import('firebase/firestore');
         const userRef = doc(db, 'users', user.uid);
         try {
             await setDoc(userRef, {
@@ -144,7 +191,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                     status: 'none',
                 },
                 trialEndsAt: null,
-                // Economy Initialization
                 credits: 125,
                 xp: {
                     total: 500,
@@ -161,45 +207,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const loginWithGoogle = async () => {
         const provider = new GoogleAuthProvider();
-        const { user } = await signInWithPopup(auth, provider);
-
-        // Ensure user entry exists
-        const { getDoc, setDoc } = await import('firebase/firestore');
-        const userRef = doc(db, 'users', user.uid);
-        const userDocSnap = await getDoc(userRef);
-
-        if (!userDocSnap.exists()) {
-            try {
-                await setDoc(userRef, {
-                    uid: user.uid,
-                    email: user.email || '',
-                    name: user.displayName || '',
-                    createdAt: new Date(),
-                    lastLogin: new Date(),
-                    stripeCustomerId: '',
-                    tier: {
-                        current: 'FREE',
-                        previous: null,
-                        updatedAt: new Date(),
-                        manualApprovalFlag: false,
-                    },
-                    subscriptionStatus: {
-                        status: 'none',
-                    },
-                    trialEndsAt: null,
-                    credits: 125,
-                    xp: {
-                        total: 500,
-                        multiplier: 1,
-                        lastUpdated: new Date()
-                    },
-                    collectibles: [],
-                    engagementScore: 0,
-                }, { merge: true });
-            } catch (err) {
-                console.error('Failed to initialize economy for Google Sign-in citizen:', err);
-            }
-        }
+        // Use redirect instead of popup to bypass COOP strict isolation
+        await signInWithRedirect(auth, provider);
+        // The result is handled by getRedirectResult on remount
     };
 
     const logout = async () => {
@@ -218,3 +228,4 @@ export function useAuth() {
     if (!context) throw new Error('useAuth must be used within an AuthProvider');
     return context;
 }
+

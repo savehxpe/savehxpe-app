@@ -18,23 +18,49 @@ export default function NoHandouts() {
     const audioCtxRef = useRef<AudioContext | null>(null);
 
     const handlePlay = async () => {
+        console.log("[NO-HANDOUTS IGNITION]: handlePlay triggered.");
+
         // 1. Force Audio Context Creation Synchronously on Click
         let audioCtx = audioCtxRef.current;
-        if (!audioCtx) {
-            const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-            audioCtx = new AudioContextClass();
-            audioCtxRef.current = audioCtx;
+        try {
+            if (!audioCtx) {
+                const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+                audioCtx = new AudioContextClass();
+                audioCtxRef.current = audioCtx;
+                console.log("[AUDIO]: AudioContext created.");
+            }
+
+            // Resume to unlock securely within the click stack, then suspend while awaiting Firebase
+            if (audioCtx.state === 'suspended') {
+                await audioCtx.resume();
+                console.log("[AUDIO]: AudioContext resumed.");
+            }
+            await audioCtx.suspend();
+            console.log("[AUDIO]: AudioContext suspended for transaction.");
+        } catch (audioErr: any) {
+            console.warn("[AUDIO]: AudioContext init/resume failed:", audioErr);
         }
 
-        // Resume to unlock securely within the click stack, then suspend while awaiting Firebase
-        if (audioCtx.state === 'suspended') {
-            audioCtx.resume().catch(() => { });
+        if (!firebaseUser) {
+            const msg = "NO AUTH: Firebase user is null. Are you signed in?";
+            console.error(`[IGNITION FAIL]: ${msg}`);
+            setErrorMsg(msg);
+            window.alert(`[IGNITION ERROR]: ${msg}`);
+            return;
         }
-        audioCtx.suspend().catch(() => { });
+        if (!userDoc) {
+            const msg = "NO USER DOC: Firestore document is null. Profile may not exist.";
+            console.error(`[IGNITION FAIL]: ${msg}`);
+            setErrorMsg(msg);
+            window.alert(`[IGNITION ERROR]: ${msg}`);
+            return;
+        }
+        if (gameState === 'DIAGNOSTIC') {
+            console.warn("[IGNITION]: Already in DIAGNOSTIC state, ignoring.");
+            return;
+        }
 
-        if (!firebaseUser || !userDoc || gameState === 'DIAGNOSTIC') return;
-
-        if (userDoc.credits < 10) {
+        if ((userDoc.credits ?? 0) < 10) {
             setErrorMsg('INSUFFICIENT FUNDS: ASCEND OR REFILL LEDGER');
             setGameState('LOBBY');
             return;
@@ -45,21 +71,26 @@ export default function NoHandouts() {
 
         try {
             // 2. Execute 10 CR Secure Transaction BEFORE Network Burden
+            console.log("[TRANSACTION]: Starting 10 CR deduction...");
             const userRef = doc(db, 'users', firebaseUser.uid);
             await runTransaction(db, async (transaction) => {
                 const docSnap = await transaction.get(userRef);
-                if (!docSnap.exists()) throw new Error("User does not exist");
+                if (!docSnap.exists()) throw new Error("User document does not exist in Firestore");
                 const currentCredits = docSnap.data().credits || 0;
-                if (currentCredits < 10) throw new Error("Insufficient credits");
+                if (currentCredits < 10) throw new Error("Insufficient credits (race condition)");
                 transaction.update(userRef, { credits: currentCredits - 10 });
             });
+            console.log("[TRANSACTION]: 10 CR deducted successfully.");
 
             // 4. State Handshake completed successfully
             setGameState('PLAYING');
+            console.log("[IGNITION]: State set to PLAYING.");
 
         } catch (error: any) {
-            console.error('Error starting game:', error);
-            setErrorMsg(error?.message || error?.toString() || 'Secure transaction failed. SIGNAL LOST.');
+            const errorMessage = error?.message || error?.toString() || 'UNKNOWN TRANSACTION ERROR';
+            console.error('[IGNITION FATAL]:', errorMessage, error);
+            setErrorMsg(errorMessage);
+            window.alert(`[IGNITION ERROR]: ${errorMessage}`);
             setGameState('LOBBY');
         }
     };
