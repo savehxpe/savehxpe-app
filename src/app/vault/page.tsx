@@ -13,16 +13,141 @@ export default function VaultExplorer() {
     const { userDoc, firebaseUser } = useAuth();
     const { systemStatus } = useSystemStatus();
 
-    // Simulating access control: if tier is not PREMIUM, show gated view.
-    const isPremium = userDoc?.tier.current === 'PREMIUM' || userDoc?.tier.current === 'STANDARD' || !!userDoc?.unlocked_assets?.includes('VAULT_ACCESS');
+    const isPremium = userDoc?.tier?.current === 'PREMIUM' || userDoc?.tier?.current === 'STANDARD' || !!userDoc?.unlocked_assets?.includes('VAULT_ACCESS');
 
     const [systemMessage, setSystemMessage] = useState<{ type: 'error' | 'success', text: string } | null>(null);
+    const [playingStem, setPlayingStem] = useState<string | null>(null);
+    const [verifying, setVerifying] = useState<string | null>(null);
 
     const showMessage = (type: 'error' | 'success', text: string) => {
         setSystemMessage({ type, text });
         setTimeout(() => setSystemMessage(null), 5000);
     };
 
+    /**
+     * Mobile-safe preview logic. Audio API must be triggered exactly inside the onClick stack.
+     */
+    const handlePreview = (previewUrl: string, stemId: string) => {
+        if (!previewUrl) return;
+        if (playingStem === stemId) return; // Ignore if already playing
+
+        setPlayingStem(stemId);
+        const audio = new Audio(previewUrl);
+        audio.play().catch((e) => {
+            console.error("Audio playback blocked", e);
+            showMessage('error', 'PREVIEW ERROR: Audio playback blocked.');
+            setPlayingStem(null);
+        });
+
+        audio.addEventListener('ended', () => {
+            setPlayingStem(null);
+        });
+    };
+
+    /**
+     * Pure idempotent transaction wrapper for 50 CR item
+     */
+    const handleUnlock = async (stemId: string, cost: number) => {
+        if (!firebaseUser || !userDoc) return;
+        if (userDoc.credits < cost) {
+            showMessage('error', 'INSUFFICIENT FUNDS');
+            return;
+        }
+        if (userDoc.unlocked_assets?.includes(stemId)) return;
+
+        setVerifying(stemId);
+        try {
+            const userRef = doc(db, 'users', firebaseUser.uid);
+            await runTransaction(db, async (transaction) => {
+                const docSnap = await transaction.get(userRef);
+                const data = docSnap.data();
+                if (!data) throw "No data";
+                const currentCredits = data.credits || 0;
+                if (currentCredits < cost) throw "Not enough credits";
+
+                transaction.update(userRef, {
+                    credits: currentCredits - cost,
+                    unlocked_assets: arrayUnion(stemId)
+                });
+            });
+            showMessage('success', 'TRANSMISSION VERIFIED: Asset Unlocked.');
+        } catch (err) {
+            console.error(err);
+            showMessage('error', "LEDGER FAILED: Error Processing Transaction.");
+        } finally {
+            setVerifying(null);
+        }
+    };
+
+    /**
+     * Force-downloads the asset after extracting the stream as a Blob
+     */
+    const handleDownload = async (stemId: string, ext: string, downloadUrl?: string) => {
+        if (!firebaseUser) return;
+        setSystemMessage(null);
+        setVerifying(stemId);
+
+        try {
+            if (downloadUrl) {
+                // The Extraction Hack (Forces true download, bypassing browser stream-open)
+                const response = await fetch(downloadUrl);
+                const blob = await response.blob();
+                const blobUrl = window.URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = blobUrl;
+                link.download = `${stemId}${ext}`; // Force the filename natively
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                window.URL.revokeObjectURL(blobUrl);
+                return;
+            }
+
+            const token = await firebaseUser.getIdToken();
+            const res = await fetch('/api/get-download', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ item: stemId })
+            });
+
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                const errorMsg = data.error || (res.status === 404 ? 'File Not Found' : 'Unauthorized');
+                showMessage('error', `TRANSMISSION FAILED [${res.status}]: ${errorMsg}`);
+                setVerifying(null);
+                return;
+            }
+
+            const data = await res.json();
+            if (data.url) {
+                // The Extraction Hack (Forces true download, bypassing browser stream-open)
+                const response = await fetch(data.url);
+                const blob = await response.blob();
+                const blobUrl = window.URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = blobUrl;
+                link.download = `${stemId}${ext}`; // Force the filename natively
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                window.URL.revokeObjectURL(blobUrl);
+            } else {
+                showMessage('error', `TRANSMISSION FAILED [500]: Invalid Secure Link`);
+            }
+        } catch (err) {
+            console.error(err);
+            showMessage('error', "TRANSMISSION FAILED [500]: Network Error");
+        } finally {
+            setVerifying(null);
+        }
+    };
+
+    /**
+     * Vault global unlock check for Sealed screen
+     */
     const handleUnlockAttempt = async () => {
         if (!firebaseUser || !userDoc) return;
         if (userDoc.credits < 50) {
@@ -54,98 +179,46 @@ export default function VaultExplorer() {
         }
     };
 
-    const handleAssetAction = async (stemId: string) => {
-        if (!firebaseUser || !userDoc) return;
-        setSystemMessage(null);
-
-        const isOwned = isPremium || userDoc.unlocked_assets?.includes(stemId);
-
-        if (isOwned) {
-            // DOWNLOAD logic
-            try {
-                const token = await firebaseUser.getIdToken();
-                const res = await fetch('/api/get-download', {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ item: stemId })
-                });
-
-                if (!res.ok) {
-                    const data = await res.json().catch(() => ({}));
-                    const errorMsg = data.error || (res.status === 404 ? 'File Not Found' : 'Unauthorized');
-                    showMessage('error', `TRANSMISSION FAILED [${res.status}]: ${errorMsg}`);
-                    return;
-                }
-
-                const data = await res.json();
-                if (data.url) {
-                    window.location.href = data.url;
-                } else {
-                    showMessage('error', `TRANSMISSION FAILED [500]: Invalid Secure Link`);
-                }
-            } catch (err) {
-                console.error(err);
-                showMessage('error', "TRANSMISSION FAILED [500]: Network Error");
-            }
-        } else {
-            // UNLOCK logic
-            if (userDoc.credits < 50) {
-                showMessage('error', 'LEDGER FAILED: Insufficient Credits (50 CR Required)');
-                return;
-            }
-
-            try {
-                const userRef = doc(db, 'users', firebaseUser.uid);
-                await runTransaction(db, async (transaction) => {
-                    const docSnap = await transaction.get(userRef);
-                    if (!docSnap.exists()) throw "User does not exist";
-                    const data = docSnap.data();
-                    const currentCredits = data.credits || 0;
-                    if (currentCredits < 50) throw "Not enough credits";
-
-                    const currentAssets = data.unlocked_assets || [];
-                    if (currentAssets.includes(stemId)) return;
-
-                    transaction.update(userRef, {
-                        credits: currentCredits - 50,
-                        unlocked_assets: arrayUnion(stemId)
-                    });
-                });
-                showMessage('success', 'TRANSMISSION VERIFIED: Asset Unlocked.');
-            } catch (err) {
-                console.error(err);
-                showMessage('error', "LEDGER FAILED: Error Processing Transaction.");
-            }
-        }
-    };
-
     const VAULT_ITEMS = [
         {
-            id: 'BUNDLE',
-            title: 'Handout Remix\nStems',
+            id: 'DRUMS',
+            title: 'Drums',
             type: 'Stems',
             icon: 'piano',
-            description: 'Included: Drums, Bass, Synth, Vox',
-            ext: '.ZIP'
+            description: 'Format: WAV (24bit / 48kHz)',
+            ext: '.WAV',
+            previewUrl: 'https://firebasestorage.googleapis.com/v0/b/savehxpe-prod.firebasestorage.app/o/vault%2Fstems%2FDRUMS_PREVIEW.wav?alt=media&token=b99043d3-7038-4c40-b0f8-21be534029d7',
+            downloadUrl: 'https://firebasestorage.googleapis.com/v0/b/savehxpe-prod.firebasestorage.app/o/vault%2Fstems%2FSTEM_FILE_01.wav?alt=media&token=6790a77a-a061-4a50-bc8b-18284c0f938c'
+        },
+        {
+            id: 'BASS',
+            title: 'Bass',
+            type: 'Stems',
+            icon: 'album',
+            description: 'Format: WAV (24bit / 48kHz)',
+            ext: '.WAV',
+            previewUrl: 'https://firebasestorage.googleapis.com/v0/b/savehxpe-prod.firebasestorage.app/o/vault%2Fstems%2FBASS_PREVIEW.wav?alt=media&token=58dfa24c-5fd0-4554-8763-a2da0b32f0bf',
+            downloadUrl: 'https://firebasestorage.googleapis.com/v0/b/savehxpe-prod.firebasestorage.app/o/vault%2Fstems%2FSTEM_FILE_02.wav?alt=media&token=4e602ee5-ab7c-41a1-a9e7-fd042b80e844'
+        },
+        {
+            id: 'SYNTHS',
+            title: 'Synths',
+            type: 'Stems',
+            icon: 'graphic_eq',
+            description: 'Format: WAV (24bit / 48kHz)',
+            ext: '.WAV',
+            previewUrl: 'https://firebasestorage.googleapis.com/v0/b/savehxpe-prod.firebasestorage.app/o/vault%2Fstems%2FSYNTHS_PREVIEW.wav?alt=media&token=75fcbd85-8f81-4a79-b24e-7129061b3e34',
+            downloadUrl: 'https://firebasestorage.googleapis.com/v0/b/savehxpe-prod.firebasestorage.app/o/vault%2Fstems%2FSTEM_FILE_03.wav?alt=media&token=f2ef14f1-231c-4661-b297-cf2e2d78f30c'
         },
         {
             id: 'INSTRUMENTAL',
             title: 'Instrumental\nMaster',
             type: 'Master',
-            icon: 'album',
-            description: 'Format: WAV (24bit / 48kHz)',
-            ext: '.WAV'
-        },
-        {
-            id: 'VIDEO',
-            title: 'Studio Sessions\nVideo',
-            type: 'Video',
             icon: 'smart_display',
-            description: 'Duration: 14:02 // 4K',
-            ext: '.MP4'
+            description: 'Format: WAV (24bit / 48kHz)',
+            ext: '.WAV',
+            previewUrl: 'https://firebasestorage.googleapis.com/v0/b/savehxpe-prod.firebasestorage.app/o/vault%2Fstems%2FHANDOUT_INST_PREVIEW.mp3?alt=media&token=eff89267-f076-43f9-bf62-3ad8dddd1e59',
+            downloadUrl: 'https://firebasestorage.googleapis.com/v0/b/savehxpe-prod.firebasestorage.app/o/vault%2Fstems%2FHANDOUT_INSTRUMENTAL_MASTER.wav?alt=media&token=8f5bf56a-666e-4e88-b92d-2538f5928ccc'
         }
     ];
 
@@ -270,30 +343,34 @@ export default function VaultExplorer() {
                                     <div className="aspect-video bg-gray-100 relative overflow-hidden flex items-center justify-center border border-black/10">
                                         <span className="material-symbols-outlined text-6xl text-black/20 group-hover:text-black transition-colors duration-500">{item.icon}</span>
                                         <div className="absolute inset-0 bg-gradient-to-t from-black/10 to-transparent"></div>
-                                        {item.id === 'VIDEO' && (
-                                            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/5">
-                                                <div className="w-12 h-12 bg-black rounded-full flex items-center justify-center text-white">
-                                                    <span className="material-symbols-outlined">play_arrow</span>
-                                                </div>
-                                            </div>
-                                        )}
+
+                                        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/10">
+                                            <button
+                                                onClick={() => handlePreview(item.previewUrl, item.id)}
+                                                className="w-12 h-12 bg-black rounded-full flex items-center justify-center text-white transform hover:scale-110 transition-transform"
+                                            >
+                                                <span className="material-symbols-outlined">{playingStem === item.id ? 'equalizer' : 'play_arrow'}</span>
+                                            </button>
+                                        </div>
                                     </div>
                                     <div className="flex flex-col gap-1">
                                         <h4 className="font-bold text-xl uppercase leading-tight whitespace-pre-line">{item.title}</h4>
                                         <p className="font-mono text-xs text-black/60 uppercase">{item.description}</p>
                                     </div>
                                     <button
-                                        onClick={() => handleAssetAction(item.id)}
-                                        disabled={systemStatus.maintenance_mode && !isOwned}
-                                        className={`mt-auto w-full border-2 border-black h-12 font-bold uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${systemStatus.maintenance_mode && !isOwned ? 'bg-slate-400 text-slate-700 cursor-not-allowed grayscale' : 'text-black bg-white hover:bg-black hover:text-white'}`}
+                                        onClick={() => isOwned ? handleDownload(item.id, item.ext, item.downloadUrl) : handleUnlock(item.id, 50)}
+                                        disabled={systemStatus.maintenance_mode || verifying === item.id}
+                                        className={`mt-auto w-full border-2 border-black h-12 font-bold uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${systemStatus.maintenance_mode ? 'bg-slate-400 text-slate-700 cursor-not-allowed grayscale' : 'text-black bg-white hover:bg-black hover:text-white'}`}
                                     >
-                                        {isOwned ? (
+                                        {verifying === item.id ? (
+                                            <>VERIFYING LEDGER...</>
+                                        ) : isOwned ? (
                                             <>
                                                 <span className="material-symbols-outlined text-lg">download</span> DOWNLOAD {item.ext}
                                             </>
                                         ) : (
                                             <>
-                                                <span className="material-symbols-outlined text-lg">lock_open</span> UNLOCK (50 CR)
+                                                <span className="material-symbols-outlined text-lg">lock_open</span> 50 CREDITS TO UNLOCK
                                             </>
                                         )}
                                     </button>

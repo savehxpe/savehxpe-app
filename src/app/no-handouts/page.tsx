@@ -226,7 +226,7 @@ export default function NoHandouts() {
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), 15000);
 
-                const url = await getDownloadURL(ref(storage, "vault/stems/HANDOUT_MASTER.wav"));
+                const url = "https://firebasestorage.googleapis.com/v0/b/savehxpe-prod.firebasestorage.app/o/vault%2Fstems%2FHANDOUT_MASTER.wav?alt=media&token=22d20d9f-44f2-46cf-9866-dc8af52c9b09";
                 const response = await fetch(url, { signal: controller.signal });
 
                 clearTimeout(timeoutId);
