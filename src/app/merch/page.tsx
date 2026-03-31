@@ -63,6 +63,7 @@ export default function MerchGallery() {
                     {/* Item 1: Unlocked for everyone */}
                     <article className="group relative flex flex-col border border-black bg-white transition-all hover:shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
                         <div className="relative aspect-[4/5] overflow-hidden border-b border-black bg-neutral-100 flex items-center justify-center">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img alt="Outworld Tee" className="object-cover w-full h-full grayscale group-hover:scale-105 transition-transform duration-500" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDQJUvrqwZKV_3Hp2syY2ltu2LGvndv14dw5oXwRQ74qqiC-04q5xKOybeqMjlvy7Inq3Aun3zctRj5EGGEIMEW92apQ9FTUtlaCEnejOm-VoNRmHk3t63l-Ha6uQCgxlMNqe4v5yPV1f6meYCtOTKh6v_xJI7qKKzsLGMc2F2jMOZ5FHxP0TS6xfXF3wIzLXf3KAxsd2gkhRvyeAK_YShgAvNOLqMuYZ8pwXUOYSU68AtHn6lMYLTwdsRrHQqPdd0C83adb8ew-h0" />
                             <div className="absolute top-4 left-4 bg-white border border-black px-2 py-1 z-10">
                                 <span className="font-mono text-[10px] font-bold uppercase tracking-widest">In Stock</span>
@@ -85,6 +86,7 @@ export default function MerchGallery() {
                     {/* Item 2: Requires Standard or 1000 XP */}
                     <article className="group relative flex flex-col border border-black bg-white opacity-90 transition-all hover:shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
                         <div className="relative aspect-[4/5] overflow-hidden border-b border-black bg-gray-50 flex items-center justify-center">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img alt="Handout Hoodie" className={`absolute inset-0 object-cover w-full h-full grayscale transition-transform duration-500 ${!hasStandardAccess ? 'locked-vault-blur opacity-50' : 'group-hover:scale-105'}`} src="https://lh3.googleusercontent.com/aida-public/AB6AXuBQ4N4e_ms8latx7MxXbPrvcm7-9TZS40QIuU2yJlQ6q5nz2RbwTv2c3Xk5avM74jUzFrM5fgEQMEwiYLdl-mvETp96W9bKDJ-yhavVa_9NWKNTeJbgcGceGimxOOYIipHJjzVeRNZFg0xY524sZxQ8lH3VCEDzSdNWNgaTFVcXMCQ_y-tHfFxD545HX1b7nGjT6LBzj__1hTXLXvBQXnetEXZTyA9zxETgWumURDf6k9Q52XAFHnJ0T-B-il8HBSsZ-V_drnxXdcg" />
 
                             {!hasStandardAccess && (
@@ -130,6 +132,7 @@ export default function MerchGallery() {
                     {/* Item 3: Premium Only */}
                     <article className="group relative flex flex-col border border-black bg-white opacity-90 transition-all hover:shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
                         <div className="relative aspect-[4/5] overflow-hidden border-b border-black bg-gray-50 flex items-center justify-center">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img alt="Physical Vinyl" className={`absolute inset-0 object-cover w-full h-full grayscale transition-transform duration-500 ${!hasPremiumAccess ? 'locked-vault-blur opacity-50' : 'group-hover:scale-105'}`} src="https://lh3.googleusercontent.com/aida-public/AB6AXuBzRwsB9FR8YQtZp8WB940ZcnmqU1mz_rpGPSC2dlvVrld-LJa9EVDGqe6dFHX5Op9bs_elK16PgRURj4Jm6PX3Jgbcbmbzb_n2_5ZdAHrnAqf237phqMSPtVHw2JkyH76GCwg1xh4HUywmgcyEydMzNZcCiwMG6v7cr3tLkv5ZEWcW4gGY9ctGS_LXIozcK4HGmzReiNAgOd_gB14vzwGhZandb07r6XAAolsni70i4QxpZqEaPt9Q-_oRe3FKBVDz4wCJoCPWhEs" />
 
                             {!hasPremiumAccess && (

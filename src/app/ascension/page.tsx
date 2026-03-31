@@ -36,7 +36,7 @@ function AuthorizeButton({ selectedTier, billingFrequency }: { selectedTier: str
                 try {
                     const data = await res.json();
                     if (data.error) errorMsg = data.error;
-                } catch (e) { }
+                } catch { }
 
                 throw new Error(errorMsg);
             }
@@ -52,6 +52,7 @@ function AuthorizeButton({ selectedTier, billingFrequency }: { selectedTier: str
                 throw new Error('Stripe failed to initialize');
             }
 
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const { error: stripeError } = await (stripe as any).redirectToCheckout({
                 sessionId: data.sessionId
             });
@@ -60,9 +61,9 @@ function AuthorizeButton({ selectedTier, billingFrequency }: { selectedTier: str
                 setError(stripeError.message || 'Payment forwarding failed');
             }
 
-        } catch (err: any) {
+        } catch (err: unknown) {
             console.error('Payment failed:', err);
-            setError(err.message || 'Payment processing failed due to a system error.');
+            setError(err instanceof Error ? err.message : 'Payment processing failed due to a system error.');
         } finally {
             setIsAuthorizing(false);
         }
@@ -98,7 +99,6 @@ function AuthorizeButton({ selectedTier, billingFrequency }: { selectedTier: str
 
 export default function AscensionPortal() {
     const router = useRouter();
-    const { userDoc } = useAuth();
 
     const [billingFrequency, setBillingFrequency] = useState<'monthly' | 'yearly'>('yearly');
     const [selectedTier, setSelectedTier] = useState<'standard' | 'premium'>('standard');

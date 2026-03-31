@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
             try {
                 const userRecord = await getAuth().getUser(uid);
                 email = userRecord.email;
-            } catch (e) {
+            } catch {
                 // Ignore if we can't fetch auth
             }
 
@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
             await userDocRef.set({ stripeCustomerId }, { merge: true });
         }
 
-        const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://www.savehxpe.com';
 
         // Create Checkout Session
         const session = await stripe.checkout.sessions.create({
@@ -81,8 +81,8 @@ export async function POST(req: NextRequest) {
         // Must return a valid JSON object with sessionId according to the instructions
         return NextResponse.json({ sessionId: session.id, url: session.url });
 
-    } catch (err: any) {
+    } catch (err: unknown) {
         console.error('Checkout session creation error:', err);
-        return NextResponse.json({ error: err.message || 'Unknown server error' }, { status: 500 });
+        return NextResponse.json({ error: err instanceof Error ? err.message : 'Unknown server error' }, { status: 500 });
     }
 }

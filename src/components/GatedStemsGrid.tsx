@@ -175,8 +175,18 @@ export default function GatedStemsGrid() {
                             </div>
                             <button
                                 onClick={() => isOwned ? handleDownload(item.id, item.ext, item.downloadUrl) : handleUnlock(item.id, 50)}
+                                onMouseEnter={() => {
+                                    if (systemMessage?.type === 'error') {
+                                        setSystemMessage(null);
+                                    }
+                                }}
                                 disabled={systemStatus?.maintenance_mode || verifying === item.id}
-                                className={`mt-auto w-full border-2 border-black h-12 font-bold uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${systemStatus?.maintenance_mode ? 'bg-slate-400 text-slate-700 cursor-not-allowed grayscale' : 'text-black bg-white hover:bg-black hover:text-white'}`}
+                                className={`mt-auto w-full border-2 h-12 font-bold uppercase tracking-widest transition-all duration-300 flex items-center justify-center gap-2 ${systemStatus?.maintenance_mode
+                                    ? 'border-black bg-slate-400 text-slate-700 cursor-not-allowed grayscale'
+                                    : isOwned
+                                        ? 'border-black text-black bg-white hover:border-cyan-400 hover:bg-black hover:text-cyan-400 hover:shadow-[0_0_15px_#22d3ee]'
+                                        : 'border-black text-black bg-white hover:bg-black hover:text-white'
+                                    }`}
                             >
                                 {verifying === item.id ? (
                                     <>VERIFYING LEDGER...</>

@@ -8,13 +8,13 @@ export function useVaultAudio() {
 
     const initAudio = useCallback(() => {
         if (!audioContextRef.current) {
-            const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
-            audioContextRef.current = new AudioContext();
+            const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof window.AudioContext }).webkitAudioContext;
+            audioContextRef.current = new AudioCtx();
             setIsInitialized(true);
 
             // Resume context if suspended
-            if (audioContextRef.current.state === 'suspended') {
-                audioContextRef.current.resume();
+            if (audioContextRef.current!.state === 'suspended') {
+                audioContextRef.current!.resume();
             }
         }
     }, []);

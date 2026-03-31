@@ -9,7 +9,7 @@ function Canvas2DCore({ isLoaded }: { isLoaded: boolean }) {
   const animRef = useRef<number>(0);
   const angleRef = useRef(0);
 
-  const draw = useCallback(() => {
+  const draw = useCallback(function drawFrame() {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -109,7 +109,7 @@ function Canvas2DCore({ isLoaded }: { isLoaded: boolean }) {
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, w, h);
 
-    animRef.current = requestAnimationFrame(draw);
+    animRef.current = requestAnimationFrame(drawFrame);
   }, [isLoaded]);
 
   useEffect(() => {

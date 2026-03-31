@@ -44,24 +44,25 @@ service cloud.firestore {
       }
     }
     
-    // ── SYSTEM STATUS ──
-    // The useSystemStatus hook reads from config/system_status
-    // Allow any authenticated user to read config collection
+    // ── SYSTEM CONFIG ──
+    // The useSystemStatus hook reads from config/system_status.
+    // Public read: these fire before auth resolves on the client.
     match /config/{document=**} {
-      allow read: if isSignedIn();
+      allow read: if true;
       allow write: if false;
     }
 
     // ── GLOBAL STANDING ──
-    // Allow any authenticated user to read global standings (leaderboards, rankings)
+    // Public read: leaderboard/ranking data is non-sensitive.
     match /global_standing/{document=**} {
-      allow read: if isSignedIn();
+      allow read: if true;
       allow write: if false;
     }
 
     // ── SYSTEM STATUS (legacy path) ──
+    // Public read: system status is non-sensitive telemetry.
     match /system_status/{document=**} {
-      allow read: if isSignedIn();
+      allow read: if true;
       allow write: if false;
     }
 

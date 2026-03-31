@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: 'No Stripe customer ID found' }, { status: 400 });
         }
 
-        const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://www.savehxpe.com';
 
         // Create Stripe Checkout Session with 7-day trial
         const session = await stripe.checkout.sessions.create({

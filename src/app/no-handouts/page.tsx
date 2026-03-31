@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { doc, runTransaction } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import CashCaliberEngine from '@/components/CashCaliberEngine';
+import VaultRainModule from '@/components/VaultRainModule';
 
 export default function NoHandouts() {
     const router = useRouter();
@@ -14,32 +14,8 @@ export default function NoHandouts() {
     const [gameState, setGameState] = useState<'LOBBY' | 'DIAGNOSTIC' | 'PLAYING' | 'GAME_OVER'>('LOBBY');
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-    // Audio Refs
-    const audioCtxRef = useRef<AudioContext | null>(null);
-
     const handlePlay = async () => {
         console.log("[NO-HANDOUTS IGNITION]: handlePlay triggered.");
-
-        // 1. Force Audio Context Creation Synchronously on Click
-        let audioCtx = audioCtxRef.current;
-        try {
-            if (!audioCtx) {
-                const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-                audioCtx = new AudioContextClass();
-                audioCtxRef.current = audioCtx;
-                console.log("[AUDIO]: AudioContext created.");
-            }
-
-            // Resume to unlock securely within the click stack, then suspend while awaiting Firebase
-            if (audioCtx.state === 'suspended') {
-                await audioCtx.resume();
-                console.log("[AUDIO]: AudioContext resumed.");
-            }
-            await audioCtx.suspend();
-            console.log("[AUDIO]: AudioContext suspended for transaction.");
-        } catch (audioErr: any) {
-            console.warn("[AUDIO]: AudioContext init/resume failed:", audioErr);
-        }
 
         if (!firebaseUser) {
             const msg = "NO AUTH: Firebase user is null. Are you signed in?";
@@ -66,33 +42,82 @@ export default function NoHandouts() {
             return;
         }
 
-        setGameState('DIAGNOSTIC');
+        setGameState('PLAYING');
         setErrorMsg(null);
+    };
 
-        try {
-            // 2. Execute 10 CR Secure Transaction BEFORE Network Burden
-            console.log("[TRANSACTION]: Starting 10 CR deduction...");
-            const userRef = doc(db, 'users', firebaseUser.uid);
-            await runTransaction(db, async (transaction) => {
-                const docSnap = await transaction.get(userRef);
-                if (!docSnap.exists()) throw new Error("User document does not exist in Firestore");
-                const currentCredits = docSnap.data().credits || 0;
-                if (currentCredits < 10) throw new Error("Insufficient credits (race condition)");
-                transaction.update(userRef, { credits: currentCredits - 10 });
-            });
-            console.log("[TRANSACTION]: 10 CR deducted successfully.");
+    // ── Firebase Transaction Hooks (The Casino Loop) ──
 
-            // 4. State Handshake completed successfully
-            setGameState('PLAYING');
-            console.log("[IGNITION]: State set to PLAYING.");
-
-        } catch (error: any) {
-            const errorMessage = error?.message || error?.toString() || 'UNKNOWN TRANSACTION ERROR';
-            console.error('[IGNITION FATAL]:', errorMessage, error);
-            setErrorMsg(errorMessage);
-            window.alert(`[IGNITION ERROR]: ${errorMessage}`);
-            setGameState('LOBBY');
+    /** HOOK 1: The Ante — Deduct 10 CR via atomic runTransaction */
+    const handleGameStart = (startCallback: (success: boolean) => void) => {
+        if (!firebaseUser || !userDoc) {
+            startCallback(false);
+            return;
         }
+
+        const userRef = doc(db, 'users', firebaseUser.uid);
+        runTransaction(db, async (transaction) => {
+            const docSnap = await transaction.get(userRef);
+            if (!docSnap.exists()) throw new Error("User document does not exist in Firestore");
+            const currentCredits = docSnap.data().credits || 0;
+            if (currentCredits < 10) throw new Error("Insufficient credits (race condition)");
+            transaction.update(userRef, { credits: currentCredits - 10 });
+        })
+            .then(() => {
+                console.log("[TRANSACTION]: 10 CR ante deducted successfully.");
+                startCallback(true);
+            })
+            .catch((err) => {
+                console.error("[TRANSACTION FAIL]:", err);
+                setErrorMsg(err instanceof Error ? err.message : String(err));
+                startCallback(false);
+            });
+    };
+
+    /** HOOK 2: Viral Streak Jackpot — Push +25 CR, +200 XP via runTransaction */
+    const handleViralStreak = (data: { credits: number; xp: number }) => {
+        if (!firebaseUser) return;
+
+        const userRef = doc(db, 'users', firebaseUser.uid);
+        runTransaction(db, async (transaction) => {
+            const docSnap = await transaction.get(userRef);
+            if (!docSnap.exists()) return;
+            const docData = docSnap.data();
+            const curCreds = docData.credits || 0;
+            const curXp = docData.xp?.total || 0;
+            const curViral = docData.viralStreakMax || 0;
+
+            const newXp = curXp + data.xp;
+            const eScore = Math.floor(Math.log10(newXp + 1) * 20);
+
+            transaction.update(userRef, {
+                credits: curCreds + data.credits,
+                'xp.total': newXp,
+                engagementScore: eScore,
+                viralStreakMax: Math.max(curViral, 20),
+            });
+        }).catch((err) => console.error("[VIRAL STREAK TRANSACTION FAIL]:", err));
+    };
+
+    /** HOOK 3: Game Over — Calculate E = log10(XP + 1) × 20, push telemetry */
+    const handleGameOver = (data: { score: number; xp: number; engagement: string; viralReached: boolean }) => {
+        if (!firebaseUser) return;
+
+        const userRef = doc(db, 'users', firebaseUser.uid);
+        runTransaction(db, async (transaction) => {
+            const docSnap = await transaction.get(userRef);
+            if (!docSnap.exists()) return;
+            const docData = docSnap.data();
+            const curXp = docData.xp?.total || 0;
+
+            const newXp = curXp + data.xp;
+            const eScore = Math.floor(Math.log10(newXp + 1) * 20);
+
+            transaction.update(userRef, {
+                'xp.total': newXp,
+                engagementScore: eScore,
+            });
+        }).catch((err) => console.error("[GAME OVER TRANSACTION FAIL]:", err));
     };
 
     return (
@@ -112,17 +137,19 @@ export default function NoHandouts() {
 
             <main className="flex-1 w-full flex flex-col items-center justify-center p-4 lg:p-8 relative z-10">
 
-                {/* LOBBY UI */}
+                {/* ═══ LOBBY: MISSION SELECTION UI ═══ */}
                 {(gameState === 'LOBBY' || gameState === 'DIAGNOSTIC') && (
                     <div className="w-full max-w-5xl">
                         <h2 className="text-3xl font-black uppercase tracking-widest mb-8 text-center border-b border-white/20 pb-4">Mission Selection</h2>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
 
-                            {/* ACTIVE SLOT: CASH CALIBER */}
-                            <div className="border border-white bg-black/80 p-6 flex flex-col relative group overflow-hidden shadow-[0_0_20px_rgba(255,255,255,0.05)] transition-all hover:border-white hover:shadow-[0_0_40px_rgba(255,255,255,0.2)]">
-                                <div className="absolute inset-0 bg-white opacity-0 group-hover:opacity-5 transition-opacity"></div>
-                                <h3 className="text-2xl font-black tracking-widest uppercase mb-2">CASH CALIBER</h3>
-                                <p className="font-mono text-xs text-white/50 mb-6 uppercase">The Rhythm Shooter [114 BPM]</p>
+                            {/* ─── CARD 1: VAULT RAIN (ACTIVE) ─── */}
+                            <div className="border border-cyan-500/60 bg-black/80 p-6 flex flex-col relative group overflow-hidden shadow-[0_0_20px_rgba(0,255,255,0.08)] transition-all hover:border-cyan-400 hover:shadow-[0_0_40px_rgba(0,255,255,0.2)]">
+                                <div className="absolute inset-0 bg-cyan-500 opacity-0 group-hover:opacity-5 transition-opacity"></div>
+                                <h3 className="text-2xl font-black tracking-widest uppercase mb-2" style={{ color: '#00FFFF', textShadow: '2px 2px 0px #005555' }}>
+                                    VAULT RAIN
+                                </h3>
+                                <p className="font-mono text-xs text-white/50 mb-6 uppercase">High Speed Catcher [16-BIT]</p>
 
                                 <div className="mt-auto space-y-4">
                                     <div className="flex justify-between font-mono text-xs border-b border-white/20 pb-2">
@@ -137,35 +164,43 @@ export default function NoHandouts() {
                                 <button
                                     onClick={(e) => { e.stopPropagation(); handlePlay(); }}
                                     disabled={gameState === 'DIAGNOSTIC'}
-                                    className={`mt-8 w-full py-4 font-bold tracking-[0.2em] uppercase transition-all border ${gameState === 'DIAGNOSTIC' ? 'bg-white/50 text-black cursor-not-allowed border-white/50' : 'bg-white text-black hover:bg-black hover:text-white border-white'}`}
+                                    className={`mt-8 w-full py-4 font-bold tracking-[0.2em] uppercase transition-all border ${gameState === 'DIAGNOSTIC' ? 'bg-white/50 text-black cursor-not-allowed border-white/50' : 'bg-[#0a1628] text-cyan-400 border-cyan-500/50 hover:bg-cyan-500 hover:text-black hover:border-cyan-400'}`}
                                 >
-                                    {gameState === 'DIAGNOSTIC' ? 'VERIFYING LEDGER...' : 'Insert Ante'}
+                                    {gameState === 'DIAGNOSTIC' ? 'VERIFYING LEDGER...' : 'DROP IN'}
                                 </button>
                             </div>
 
-                            {/* GATED SLOT 2 */}
-                            <div className="border border-white/20 bg-black p-6 flex flex-col relative overflow-hidden h-[360px] blur-[2px] transition-all hover:blur-none hover:border-white/50">
-                                <div className="absolute inset-0 scanline-bg opacity-30 pointer-events-none"></div>
-                                <div className="absolute inset-0 flex items-center justify-center z-10">
-                                    <span className="border border-red-500 text-red-500 bg-black/80 font-mono text-xs px-4 py-2 uppercase tracking-widest font-bold">TRANSMISSION PENDING...</span>
-                                </div>
+                            {/* ─── CARD 2: SYSTEM.BREACH (LOCKED) ─── */}
+                            <div className="border border-white/10 bg-black p-6 flex flex-col relative overflow-hidden min-h-[360px]">
+                                <div className="absolute inset-0 bg-gradient-to-b from-transparent to-black/40 pointer-events-none z-0" />
                                 <div className="opacity-20 flex flex-col h-full pointer-events-none">
                                     <h3 className="text-2xl font-black tracking-widest uppercase mb-2">SYSTEM.BREACH</h3>
                                     <p className="font-mono text-xs mb-6 uppercase">Stealth Infiltration</p>
-                                    <div className="mt-auto w-full h-12 bg-white/20"></div>
+                                </div>
+                                <div className="absolute inset-0 flex items-center justify-center z-10">
+                                    <span className="border border-red-500/60 text-red-500/80 bg-black/90 font-mono text-[11px] px-5 py-2.5 uppercase tracking-[0.2em] font-bold">
+                                        Transmission Pending...
+                                    </span>
+                                </div>
+                                <div className="mt-auto relative z-0 opacity-10 pointer-events-none">
+                                    <div className="w-full h-11 bg-white/20 rounded-sm" />
                                 </div>
                             </div>
 
-                            {/* GATED SLOT 3 */}
-                            <div className="border border-white/20 bg-black p-6 flex flex-col relative overflow-hidden h-[360px] blur-[2px] transition-all hover:blur-none hover:border-white/50">
-                                <div className="absolute inset-0 scanline-bg opacity-30 pointer-events-none"></div>
-                                <div className="absolute inset-0 flex items-center justify-center z-10">
-                                    <span className="border border-red-500 text-red-500 bg-black/80 font-mono text-xs px-4 py-2 uppercase tracking-widest font-bold">TRANSMISSION PENDING...</span>
-                                </div>
+                            {/* ─── CARD 3: VOID DRIFTER (LOCKED) ─── */}
+                            <div className="border border-white/10 bg-black p-6 flex flex-col relative overflow-hidden min-h-[360px]">
+                                <div className="absolute inset-0 bg-gradient-to-b from-transparent to-black/40 pointer-events-none z-0" />
                                 <div className="opacity-20 flex flex-col h-full pointer-events-none">
                                     <h3 className="text-2xl font-black tracking-widest uppercase mb-2">VOID DRIFTER</h3>
                                     <p className="font-mono text-xs mb-6 uppercase">Hyper-Space Survival</p>
-                                    <div className="mt-auto w-full h-12 bg-white/20"></div>
+                                </div>
+                                <div className="absolute inset-0 flex items-center justify-center z-10">
+                                    <span className="border border-red-500/60 text-red-500/80 bg-black/90 font-mono text-[11px] px-5 py-2.5 uppercase tracking-[0.2em] font-bold">
+                                        Transmission Pending...
+                                    </span>
+                                </div>
+                                <div className="mt-auto relative z-0 opacity-10 pointer-events-none">
+                                    <div className="w-full h-11 bg-white/20 rounded-sm" />
                                 </div>
                             </div>
 
@@ -173,18 +208,20 @@ export default function NoHandouts() {
                     </div>
                 )}
 
-                {/* THE ENGINE INSTANTIATION */}
-                {gameState === 'PLAYING' && audioCtxRef.current && (
-                    <CashCaliberEngine
-                        audioSrc="https://firebasestorage.googleapis.com/v0/b/savehxpe-prod.firebasestorage.app/o/vault%2Fstems%2FHANDOUT_MASTER.wav?alt=media&token=22d20d9f-44f2-46cf-9866-dc8af52c9b09"
-                        audioContext={audioCtxRef.current}
+                {/* ═══ THE ENGINE — Vault Rain Canvas ═══ */}
+                {gameState === 'PLAYING' && (
+                    <VaultRainModule
+                        credits={userDoc?.credits ?? 0}
+                        onGameStart={handleGameStart}
+                        onViralStreak={handleViralStreak}
+                        onGameOver={handleGameOver}
                         onExit={() => setGameState('LOBBY')}
                     />
                 )}
 
-                {/* ERROR MODAL */}
+                {/* ═══ ERROR MODAL ═══ */}
                 {errorMsg && (
-                    <div className="absolute inset-0 z-[100] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 text-center animate-in fade-in zoom-in duration-300">
+                    <div className="absolute inset-0 z-[100] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 text-center">
                         <div className="border border-red-500 bg-black p-8 max-w-md w-full relative overflow-hidden shadow-[0_0_50px_rgba(239,68,68,0.2)]">
                             <div className="absolute top-0 left-0 w-full h-1 bg-red-500 animate-pulse"></div>
                             <span className="material-symbols-outlined text-red-500 text-6xl mb-6">warning</span>
@@ -202,6 +239,13 @@ export default function NoHandouts() {
                     </div>
                 )}
             </main>
+
+            {/* ═══ BRAND SEAL FOOTER ═══ */}
+            {gameState !== 'PLAYING' && (
+                <footer className="w-full text-center py-6 relative z-20 border-t border-white/5 bg-black/80 backdrop-blur-sm">
+                    <p className="text-slate-500 text-[10px] font-normal leading-normal uppercase tracking-[0.4em]">© 2026 OUTWORLD LLC.</p>
+                </footer>
+            )}
         </div>
     );
 }

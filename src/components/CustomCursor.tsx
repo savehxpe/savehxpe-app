@@ -30,6 +30,17 @@ export default function CustomCursor() {
         document.addEventListener('mouseleave', onLeave);
         document.addEventListener('mouseenter', onEnter);
 
+        const attachHoverListeners = () => {
+            const interactives = document.querySelectorAll('button, a, [role="button"], input, select, textarea, .cursor-pointer');
+            interactives.forEach(el => {
+                const htmlEl = el as HTMLElement;
+                if (htmlEl.dataset.cursorBound) return;
+                htmlEl.dataset.cursorBound = '1';
+                htmlEl.addEventListener('mouseenter', () => setIsHovering(true));
+                htmlEl.addEventListener('mouseleave', () => setIsHovering(false));
+            });
+        };
+
         // Hover detection for interactive elements
         const observer = new MutationObserver(() => attachHoverListeners());
         observer.observe(document.body, { childList: true, subtree: true });
@@ -45,19 +56,6 @@ export default function CustomCursor() {
         };
     }, [handleMove]);
 
-    const attachHoverListeners = () => {
-        const interactives = document.querySelectorAll('button, a, [role="button"], input, select, textarea, .cursor-pointer');
-        interactives.forEach(el => {
-            const htmlEl = el as HTMLElement;
-            if (htmlEl.dataset.cursorBound) return;
-            htmlEl.dataset.cursorBound = '1';
-            htmlEl.addEventListener('mouseenter', () => setIsHovering(true));
-            htmlEl.addEventListener('mouseleave', () => setIsHovering(false));
-        });
-    };
-
-    // Don't render on touch devices or server
-    if (typeof window === 'undefined') return null;
 
     const size = isHovering ? 40 : 20;
     const innerSize = isHovering ? 6 : 3;

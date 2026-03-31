@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { auth } from '@/lib/firebase';
@@ -17,7 +17,30 @@ export default function Identity() {
     const [error, setError] = useState('');
     const [resetMessage, setResetMessage] = useState('');
     const [showResetInput, setShowResetInput] = useState(false);
-    const { loginWithGoogle } = useAuth();
+    const { loginWithGoogle, isRedirecting, firebaseUser } = useAuth();
+
+    const [isMounted, setIsMounted] = useState(false);
+
+    useEffect(() => {
+        setIsMounted(true);
+    }, []);
+
+    useEffect(() => {
+        if (isMounted && !isRedirecting && firebaseUser) {
+            router.push('/dashboard');
+        }
+    }, [isMounted, isRedirecting, firebaseUser, router]);
+
+    if (!isMounted) return <div className="bg-black h-screen w-full" />;
+
+    if (isRedirecting) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-screen bg-black text-white">
+                <div className="w-16 h-16 border-4 border-transparent border-t-[#00f0ff] border-r-[#00f0ff] rounded-full animate-spin mb-8" style={{ boxShadow: '0 0 15px rgba(0,240,255,0.5), inset 0 0 15px rgba(0,240,255,0.5)' }}></div>
+                <h2 className="text-[#00f0ff] font-mono tracking-[0.2em] animate-pulse text-sm">FIELD MODE IS SYNCHRONIZING...</h2>
+            </div>
+        );
+    }
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -242,8 +265,8 @@ export default function Identity() {
                 </main>
 
                 <footer className="relative z-10 flex flex-col gap-6 px-5 py-8 text-center border-t border-white/5 bg-background-light/50 dark:bg-background-dark/80 backdrop-blur-sm">
-                    <p className="text-slate-400 dark:text-[#555555] text-xs font-normal leading-normal uppercase tracking-widest">
-                        © 2026 sincethe80s, llc/radical publishing. All rights reserved.
+                    <p className="text-slate-400 dark:text-[#555555] text-[10px] font-normal leading-normal uppercase tracking-[0.4em]">
+                        © 2026 OUTWORLD LLC.
                     </p>
                 </footer>
             </div>

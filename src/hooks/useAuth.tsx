@@ -6,8 +6,7 @@ import {
     signInWithEmailAndPassword,
     createUserWithEmailAndPassword,
     signOut,
-    signInWithRedirect,
-    getRedirectResult,
+    signInWithPopup,
     GoogleAuthProvider,
     User as FirebaseUser,
 } from 'firebase/auth';
@@ -54,12 +53,14 @@ export interface UserDocument {
     inviteCode?: string;
     referral_count?: number;
     last_sync_bonus_claimed?: number;
+    hasSeenOnboarding?: boolean;
 }
 
 interface AuthContextType {
     firebaseUser: FirebaseUser | null;
     userDoc: UserDocument | null;
     loading: boolean;
+    isRedirecting: boolean;
     login: (email: string, password: string) => Promise<void>;
     signup: (email: string, password: string, name?: string) => Promise<void>;
     loginWithGoogle: () => Promise<void>;
@@ -70,6 +71,7 @@ const AuthContext = createContext<AuthContextType>({
     firebaseUser: null,
     userDoc: null,
     loading: true,
+    isRedirecting: true,
     login: async () => { },
     signup: async () => { },
     loginWithGoogle: async () => { },
@@ -80,54 +82,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
     const [userDoc, setUserDoc] = useState<UserDocument | null>(null);
     const [loading, setLoading] = useState(true);
+    const [isRedirecting, setIsRedirecting] = useState(false);
 
-    // ── Handle redirect result on mount (for signInWithRedirect) ──
-    useEffect(() => {
-        getRedirectResult(auth)
-            .then(async (result) => {
-                if (result?.user) {
-                    const user = result.user;
-                    const userRef = doc(db, 'users', user.uid);
-                    const userDocSnap = await getDoc(userRef);
-
-                    if (!userDocSnap.exists()) {
-                        try {
-                            await setDoc(userRef, {
-                                uid: user.uid,
-                                email: user.email || '',
-                                name: user.displayName || '',
-                                createdAt: new Date(),
-                                lastLogin: new Date(),
-                                stripeCustomerId: '',
-                                tier: {
-                                    current: 'FREE',
-                                    previous: null,
-                                    updatedAt: new Date(),
-                                    manualApprovalFlag: false,
-                                },
-                                subscriptionStatus: {
-                                    status: 'none',
-                                },
-                                trialEndsAt: null,
-                                credits: 125,
-                                xp: {
-                                    total: 500,
-                                    multiplier: 1,
-                                    lastUpdated: new Date()
-                                },
-                                collectibles: [],
-                                engagementScore: 0,
-                            }, { merge: true });
-                        } catch (err) {
-                            console.error('Failed to initialize economy for Google Sign-in citizen:', err);
-                        }
-                    }
-                }
-            })
-            .catch((error) => {
-                console.error('Redirect result error:', error);
-            });
-    }, []);
+    // ── No redirect handler needed — using popup flow ──
 
     // ── Auth state listener ──
     useEffect(() => {
@@ -191,7 +148,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                     status: 'none',
                 },
                 trialEndsAt: null,
-                credits: 125,
+                credits: 20,
                 xp: {
                     total: 500,
                     multiplier: 1,
@@ -199,6 +156,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 },
                 collectibles: [],
                 engagementScore: 0,
+                hasSeenOnboarding: false,
             }, { merge: true });
         } catch (err) {
             console.error('Failed to initialize economy for new citizen:', err);
@@ -207,9 +165,50 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const loginWithGoogle = async () => {
         const provider = new GoogleAuthProvider();
-        // Use redirect instead of popup to bypass COOP strict isolation
-        await signInWithRedirect(auth, provider);
-        // The result is handled by getRedirectResult on remount
+        setIsRedirecting(true);
+        try {
+            const result = await signInWithPopup(auth, provider);
+            const user = result.user;
+
+            // Initialize Firestore doc if first-time Google citizen
+            const userRef = doc(db, 'users', user.uid);
+            const userDocSnap = await getDoc(userRef);
+
+            if (!userDocSnap.exists()) {
+                await setDoc(userRef, {
+                    uid: user.uid,
+                    email: user.email || '',
+                    name: user.displayName || '',
+                    createdAt: new Date(),
+                    lastLogin: new Date(),
+                    stripeCustomerId: '',
+                    tier: {
+                        current: 'FREE',
+                        previous: null,
+                        updatedAt: new Date(),
+                        manualApprovalFlag: false,
+                    },
+                    subscriptionStatus: {
+                        status: 'none',
+                    },
+                    trialEndsAt: null,
+                    credits: 20,
+                    xp: {
+                        total: 500,
+                        multiplier: 1,
+                        lastUpdated: new Date()
+                    },
+                    collectibles: [],
+                    engagementScore: 0,
+                    hasSeenOnboarding: false,
+                }, { merge: true });
+            }
+        } catch (err) {
+            console.error('Google Sign-In failed:', err);
+            throw err;
+        } finally {
+            setIsRedirecting(false);
+        }
     };
 
     const logout = async () => {
@@ -217,7 +216,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
 
     return (
-        <AuthContext.Provider value={{ firebaseUser, userDoc, loading, login, signup, loginWithGoogle, logout }}>
+        <AuthContext.Provider value={{ firebaseUser, userDoc, loading, isRedirecting, login, signup, loginWithGoogle, logout }}>
             {children}
         </AuthContext.Provider>
     );

@@ -1,540 +1,621 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { doc, runTransaction } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
-import { useAuth } from '@/hooks/useAuth';
-import { useRouter } from 'next/navigation';
+import { useEffect, useRef, useCallback, useState } from 'react';
 
-const BPM_CONST = 114;
-const BEAT_MS = 526.32; // Precisely 60000 / 114
-const FALL_DURATION_MS = BEAT_MS * 4; // 4 beats to reach bottom of the track
-const HIT_ZONE_Y = 85;
-const HIT_TOLERANCE = 12;
+/* ═══════════════════════════════════════════════════════════════════════════
+   TYPES
+   ═══════════════════════════════════════════════════════════════════════════ */
 
-const CASH_RAIN_DROPS = Array.from({ length: 60 }).map(() => ({
-    left: Math.random() * 100,
-    duration: 1 + Math.random() * 2,
-    delay: Math.random() * 2
-}));
-
-type Target = {
+interface Target {
     id: number;
+    x: number;
+    y: number;
+    radius: number;
     spawnTime: number;
+    lifetime: number;       // ms before auto-expire
     hit: boolean;
     missed: boolean;
+    pulsePhase: number;     // randomized start phase
+    shape: 'diamond' | 'circle' | 'hexagon';
+}
+
+interface Particle {
+    x: number;
     y: number;
-};
+    vx: number;
+    vy: number;
+    life: number;
+    maxLife: number;
+    color: string;
+    text?: string;          // optional '$' symbol
+    size: number;
+}
 
-type EngineProps = {
-    audioSrc: string;
-    audioContext: AudioContext;
+interface Props {
+    credits: number;
+    onGameStart: (cb: (ok: boolean) => void) => void;
+    onViralStreak: (data: { credits: number; xp: number }) => void;
+    onGameOver: (data: { score: number; xp: number; engagement: string; viralReached: boolean }) => void;
     onExit: () => void;
-};
+}
 
-export default function CashCaliberEngine({ audioSrc, audioContext, onExit }: EngineProps) {
-    const { userDoc, firebaseUser } = useAuth();
-    const router = useRouter();
+/* ═══════════════════════════════════════════════════════════════════════════
+   CONSTANTS
+   ═══════════════════════════════════════════════════════════════════════════ */
 
-    const [engineState, setEngineState] = useState<'LOADING' | 'PLAYING' | 'JACKPOT' | 'GAME_OVER'>('LOADING');
-    const [score, setScore] = useState(0);
-    const [streak, setStreak] = useState(0);
-    const [activeTargets, setActiveTargets] = useState<Target[]>([]);
-    const [hitFlash, setHitFlash] = useState(false);
+const BPM = 114;
+const BEAT_MS = 60000 / BPM;            // ≈526ms
+const SPAWN_INTERVAL = BEAT_MS * 2;     // every 2 beats
+const TARGET_LIFETIME = 2200;           // ms before miss
+const GAME_DURATION = 30000;            // 30s round
+const VIRAL_STREAK = 20;
+const GRID_COLOR = '#001a1a';
+const GRID_SPACING = 48;
+const CROSSHAIR_COLOR = '#00FFFF';
+const HIT_PARTICLE_COLOR = '#00FF66';
 
-    // New visual states for 16-bit retro
-    const [beatFrame, setBeatFrame] = useState(0);
-    const [gunRecoil, setGunRecoil] = useState(false);
-    const [comboGlitch, setComboGlitch] = useState(false);
+/* ═══════════════════════════════════════════════════════════════════════════
+   COMPONENT
+   ═══════════════════════════════════════════════════════════════════════════ */
 
-    const [engineError, setEngineError] = useState<string | null>(null);
+export default function CashCaliberEngine({ credits, onGameStart, onViralStreak, onGameOver, onExit }: Props) {
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const animRef = useRef<number>(0);
+    const containerRef = useRef<HTMLDivElement>(null);
 
-    const requestRef = useRef<number>(0);
+    // Game state refs (avoid re-renders during hot loop)
+    const phase = useRef<'IDLE' | 'PLAYING' | 'OVER'>('IDLE');
+    const scoreRef = useRef(0);
+    const streakRef = useRef(0);
+    const maxStreakRef = useRef(0);
     const targetsRef = useRef<Target[]>([]);
-    const lastSpawnTimeRef = useRef<number>(0);
-    const gameStartTimeRef = useRef<number>(0);
-    const streakRef = useRef<number>(0);
-    const scoreRef = useRef<number>(0);
-    const jackpotClaimedRef = useRef<boolean>(false);
-    const lastBeatRef = useRef<number>(0);
+    const particlesRef = useRef<Particle[]>([]);
+    const lastSpawnRef = useRef(0);
+    const startTimeRef = useRef(0);
+    const mouseRef = useRef({ x: 0, y: 0 });
+    const gridOffsetRef = useRef(0);
+    const shakeRef = useRef({ x: 0, y: 0, decay: 0 });
+    const viralTriggered = useRef(false);
+    const nextTargetId = useRef(0);
 
-    const backgroundAudioRef = useRef<AudioBufferSourceNode | null>(null);
+    // Display state (for HUD overlay)
+    const [displayScore, setDisplayScore] = useState(0);
+    const [displayStreak, setDisplayStreak] = useState(0);
+    const [displayCredits, setDisplayCredits] = useState(credits);
+    const [gamePhase, setGamePhase] = useState<'IDLE' | 'PLAYING' | 'OVER'>('IDLE');
+    const [finalScore, setFinalScore] = useState(0);
+    const [timeLeft, setTimeLeft] = useState(30);
 
-    // Audio Loading & Initialization
-    useEffect(() => {
-        let isMounted = true;
-        const initEngine = async () => {
-            try {
-                console.log("[ENGINE]: Fetching audio from:", audioSrc);
-                const response = await fetch(audioSrc);
-                if (!response.ok) throw new Error(`Audio fetch failed: HTTP ${response.status} ${response.statusText}`);
+    /* ─── Helpers ─── */
 
-                const arrayBuffer = await response.arrayBuffer();
-                console.log("[ENGINE]: Audio fetched, decoding...", arrayBuffer.byteLength, "bytes");
+    const spawnTarget = useCallback((w: number, h: number) => {
+        const margin = 80;
+        const shapes: Target['shape'][] = ['diamond', 'circle', 'hexagon'];
+        targetsRef.current.push({
+            id: nextTargetId.current++,
+            x: margin + Math.random() * (w - margin * 2),
+            y: margin + Math.random() * (h - margin * 2),
+            radius: 22 + Math.random() * 14,
+            spawnTime: Date.now(),
+            lifetime: TARGET_LIFETIME,
+            hit: false,
+            missed: false,
+            pulsePhase: Math.random() * Math.PI * 2,
+            shape: shapes[Math.floor(Math.random() * shapes.length)],
+        });
+    }, []);
 
-                const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-                console.log("[ENGINE]: Audio decoded successfully. Duration:", audioBuffer.duration, "s");
-
-                if (!isMounted) return;
-
-                const source = audioContext.createBufferSource();
-                source.buffer = audioBuffer;
-                source.connect(audioContext.destination);
-
-                scoreRef.current = 0;
-                streakRef.current = 0;
-                jackpotClaimedRef.current = false;
-                targetsRef.current = [];
-                lastBeatRef.current = 0;
-                setBeatFrame(0);
-                gameStartTimeRef.current = Date.now() + 1000;
-                lastSpawnTimeRef.current = gameStartTimeRef.current;
-
-                await audioContext.resume();
-                source.start(audioContext.currentTime + 1);
-                backgroundAudioRef.current = source;
-
-                console.log("[ENGINE]: Audio started. Engine state -> PLAYING.");
-                setEngineState('PLAYING');
-            } catch (err: any) {
-                const msg = err?.message || err?.toString() || 'Unknown engine error';
-                console.error("[ENGINE FATAL]: Failed to initialize:", msg, err);
-                setEngineError(msg);
-
-                // FALLBACK: Start the game anyway WITHOUT audio so we can test the canvas
-                if (isMounted) {
-                    console.warn("[ENGINE FALLBACK]: Starting game without audio.");
-                    scoreRef.current = 0;
-                    streakRef.current = 0;
-                    jackpotClaimedRef.current = false;
-                    targetsRef.current = [];
-                    lastBeatRef.current = 0;
-                    setBeatFrame(0);
-                    gameStartTimeRef.current = Date.now() + 1000;
-                    lastSpawnTimeRef.current = gameStartTimeRef.current;
-                    setEngineState('PLAYING');
-                }
-            }
-        };
-
-        if (engineState === 'LOADING') {
-            initEngine();
+    const spawnParticles = useCallback((x: number, y: number, count: number) => {
+        for (let i = 0; i < count; i++) {
+            const angle = (Math.PI * 2 * i) / count + Math.random() * 0.4;
+            const speed = 2 + Math.random() * 5;
+            const isDollar = Math.random() > 0.6;
+            particlesRef.current.push({
+                x, y,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
+                life: 1,
+                maxLife: 1,
+                color: isDollar ? '#00FF66' : CROSSHAIR_COLOR,
+                text: isDollar ? '$' : undefined,
+                size: isDollar ? 14 : 3 + Math.random() * 4,
+            });
         }
+    }, []);
 
-        return () => {
-            isMounted = false;
-            if (backgroundAudioRef.current) {
-                try { backgroundAudioRef.current.stop(); } catch (e) { }
-            }
-            if (requestRef.current) cancelAnimationFrame(requestRef.current);
+    const triggerShake = useCallback((intensity: number) => {
+        shakeRef.current = {
+            x: (Math.random() - 0.5) * intensity,
+            y: (Math.random() - 0.5) * intensity,
+            decay: 1,
         };
     }, []);
 
-    const processJackpot = async () => {
-        if (!firebaseUser || jackpotClaimedRef.current) return;
-        jackpotClaimedRef.current = true;
+    /* ─── Drawing Helpers ─── */
 
-        try {
-            const userRef = doc(db, 'users', firebaseUser.uid);
-            await runTransaction(db, async (transaction) => {
-                const docSnap = await transaction.get(userRef);
-                if (!docSnap.exists()) throw "User does not exist";
-
-                const data = docSnap.data();
-                const currentCredits = data.credits || 0;
-                const currentXp = data.xp?.total || 0;
-                const newXp = currentXp + 200;
-                const newEngagement = Math.floor(Math.log10(newXp + 1) * 20);
-
-                transaction.update(userRef, {
-                    credits: currentCredits + 25,
-                    'xp.total': newXp,
-                    engagementScore: newEngagement
-                });
-            });
-        } catch (e) {
-            console.error("Jackpot drops failed:", e);
+    const drawGrid = (ctx: CanvasRenderingContext2D, w: number, h: number) => {
+        gridOffsetRef.current = (gridOffsetRef.current + 0.3) % GRID_SPACING;
+        ctx.strokeStyle = GRID_COLOR;
+        ctx.lineWidth = 1;
+        for (let x = -GRID_SPACING + gridOffsetRef.current; x < w + GRID_SPACING; x += GRID_SPACING) {
+            ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
+        }
+        for (let y = -GRID_SPACING + gridOffsetRef.current; y < h + GRID_SPACING; y += GRID_SPACING) {
+            ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
         }
     };
 
+    const drawScanlines = (ctx: CanvasRenderingContext2D, w: number, h: number) => {
+        ctx.fillStyle = 'rgba(0,0,0,0.06)';
+        for (let y = 0; y < h; y += 3) {
+            ctx.fillRect(0, y, w, 1);
+        }
+    };
+
+    const drawTarget = (ctx: CanvasRenderingContext2D, t: Target, now: number) => {
+        const elapsed = now - t.spawnTime;
+        const lifeRatio = 1 - elapsed / t.lifetime;
+        if (lifeRatio <= 0) return;
+
+        const pulse = 1 + Math.sin(now * 0.008 + t.pulsePhase) * 0.15;
+        const r = t.radius * pulse;
+        const alpha = Math.min(1, lifeRatio * 2);
+
+        ctx.save();
+        ctx.translate(t.x, t.y);
+
+        // Outer glow
+        ctx.shadowColor = CROSSHAIR_COLOR;
+        ctx.shadowBlur = 20 + Math.sin(now * 0.006 + t.pulsePhase) * 10;
+        ctx.strokeStyle = `rgba(0,255,255,${alpha * 0.9})`;
+        ctx.lineWidth = 2;
+
+        if (t.shape === 'diamond') {
+            ctx.beginPath();
+            ctx.moveTo(0, -r); ctx.lineTo(r, 0); ctx.lineTo(0, r); ctx.lineTo(-r, 0);
+            ctx.closePath(); ctx.stroke();
+            // inner fill
+            ctx.fillStyle = `rgba(0,255,255,${alpha * 0.08})`;
+            ctx.fill();
+        } else if (t.shape === 'circle') {
+            ctx.beginPath();
+            ctx.arc(0, 0, r, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.fillStyle = `rgba(0,255,255,${alpha * 0.06})`;
+            ctx.fill();
+        } else {
+            // hexagon
+            ctx.beginPath();
+            for (let i = 0; i < 6; i++) {
+                const a = (Math.PI / 3) * i - Math.PI / 6;
+                const px = Math.cos(a) * r;
+                const py = Math.sin(a) * r;
+                i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+            }
+            ctx.closePath(); ctx.stroke();
+            ctx.fillStyle = `rgba(0,255,255,${alpha * 0.07})`;
+            ctx.fill();
+        }
+
+        // Lifetime ring (shrinking)
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = `rgba(0,255,255,${alpha * 0.25})`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(0, 0, r + 8, 0, Math.PI * 2 * lifeRatio);
+        ctx.stroke();
+
+        ctx.restore();
+    };
+
+    const drawCrosshair = (ctx: CanvasRenderingContext2D, mx: number, my: number) => {
+        const size = 18;
+        const gap = 6;
+        ctx.save();
+        ctx.strokeStyle = CROSSHAIR_COLOR;
+        ctx.shadowColor = CROSSHAIR_COLOR;
+        ctx.shadowBlur = 12;
+        ctx.lineWidth = 1.5;
+
+        // Lines
+        ctx.beginPath();
+        ctx.moveTo(mx - size, my); ctx.lineTo(mx - gap, my);
+        ctx.moveTo(mx + gap, my); ctx.lineTo(mx + size, my);
+        ctx.moveTo(mx, my - size); ctx.lineTo(mx, my - gap);
+        ctx.moveTo(mx, my + gap); ctx.lineTo(mx, my + size);
+        ctx.stroke();
+
+        // Center dot
+        ctx.fillStyle = CROSSHAIR_COLOR;
+        ctx.beginPath();
+        ctx.arc(mx, my, 2, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Outer ring
+        ctx.shadowBlur = 6;
+        ctx.lineWidth = 0.8;
+        ctx.beginPath();
+        ctx.arc(mx, my, size + 4, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.restore();
+    };
+
+    const drawParticles = (ctx: CanvasRenderingContext2D) => {
+        particlesRef.current.forEach(p => {
+            const alpha = p.life;
+            ctx.save();
+            ctx.globalAlpha = alpha;
+            if (p.text) {
+                ctx.font = `bold ${p.size}px monospace`;
+                ctx.fillStyle = p.color;
+                ctx.shadowColor = p.color;
+                ctx.shadowBlur = 8;
+                ctx.fillText(p.text, p.x, p.y);
+            } else {
+                ctx.fillStyle = p.color;
+                ctx.shadowColor = p.color;
+                ctx.shadowBlur = 6;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.size * alpha, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.restore();
+        });
+    };
+
+    const drawHUD = (ctx: CanvasRenderingContext2D, w: number) => {
+        ctx.save();
+        ctx.shadowBlur = 0;
+        ctx.font = 'bold 11px monospace';
+        ctx.fillStyle = 'rgba(0,255,255,0.7)';
+        ctx.textAlign = 'left';
+        ctx.fillText(`SCORE: ${scoreRef.current}`, 16, 28);
+        ctx.fillText(`STREAK: ${streakRef.current}x`, 16, 46);
+        ctx.textAlign = 'right';
+        ctx.fillText(`CREDITS: ${displayCredits} CR`, w - 16, 28);
+        const elapsed = Date.now() - startTimeRef.current;
+        const remaining = Math.max(0, Math.ceil((GAME_DURATION - elapsed) / 1000));
+        ctx.fillText(`TIME: ${remaining}s`, w - 16, 46);
+        ctx.fillStyle = `rgba(0,255,255,0.15)`;
+        ctx.fillRect(0, 0, w, 56);
+        ctx.restore();
+    };
+
+    /* ─── Main Loop ─── */
+
     const gameLoop = useCallback(() => {
-        if (engineState !== 'PLAYING') return;
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        const dpr = window.devicePixelRatio || 1;
+        const w = canvas.clientWidth;
+        const h = canvas.clientHeight;
+        canvas.width = w * dpr;
+        canvas.height = h * dpr;
+        ctx.scale(dpr, dpr);
+
         const now = Date.now();
 
-        // Subtly sync the environment exactly every 526ms
-        const currentBeat = Math.floor((now - gameStartTimeRef.current) / BEAT_MS);
-        if (currentBeat > lastBeatRef.current) {
-            lastBeatRef.current = currentBeat;
-            setBeatFrame(currentBeat % 4);
+        // Apply screen shake
+        if (shakeRef.current.decay > 0) {
+            ctx.translate(shakeRef.current.x * shakeRef.current.decay, shakeRef.current.y * shakeRef.current.decay);
+            shakeRef.current.decay *= 0.85;
+            if (shakeRef.current.decay < 0.01) shakeRef.current.decay = 0;
         }
 
-        if (now - lastSpawnTimeRef.current > BEAT_MS * 2) {
-            targetsRef.current.push({
-                id: Math.random(),
-                spawnTime: now,
-                hit: false,
-                missed: false,
-                y: 0
-            });
-            lastSpawnTimeRef.current = now;
-        }
+        // 1) Background
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(-20, -20, w + 40, h + 40);
 
-        let hasMissed = false;
+        // 2) Grid
+        drawGrid(ctx, w, h);
 
-        targetsRef.current.forEach(t => {
-            if (!t.hit && !t.missed) {
-                const elapsed = now - t.spawnTime;
-                t.y = (elapsed / FALL_DURATION_MS) * 100;
+        if (phase.current === 'PLAYING') {
+            // 3) Spawn targets on beat
+            if (now - lastSpawnRef.current > SPAWN_INTERVAL) {
+                spawnTarget(w, h);
+                lastSpawnRef.current = now;
+            }
 
-                if (t.y > 100) {
+            // 4) Check expired targets
+            targetsRef.current.forEach(t => {
+                if (!t.hit && !t.missed && now - t.spawnTime > t.lifetime) {
                     t.missed = true;
-                    hasMissed = true;
+                    streakRef.current = 0;
+                    triggerShake(14);
                 }
-            }
-        });
+            });
 
-        if (hasMissed) {
-            streakRef.current = 0;
-            setStreak(0);
-            setComboGlitch(true);
-            setTimeout(() => setComboGlitch(false), 200);
-            targetsRef.current = targetsRef.current.filter(t => !t.missed);
+            // Purge old
+            targetsRef.current = targetsRef.current.filter(t => {
+                if (t.hit) return now - t.spawnTime < t.lifetime + 400;
+                if (t.missed) return now - t.spawnTime < t.lifetime + 200;
+                return true;
+            });
+
+            // 5) Draw targets
+            targetsRef.current.forEach(t => {
+                if (!t.hit) drawTarget(ctx, t, now);
+            });
+
+            // 6) Draw crosshair
+            drawCrosshair(ctx, mouseRef.current.x, mouseRef.current.y);
+
+            // 7) Draw particles
+            particlesRef.current.forEach(p => {
+                p.x += p.vx;
+                p.y += p.vy;
+                p.vy += 0.08; // gravity
+                p.life -= 0.025;
+            });
+            particlesRef.current = particlesRef.current.filter(p => p.life > 0);
+            drawParticles(ctx);
+
+            // 8) HUD
+            drawHUD(ctx, w);
+
+            // Periodic React state sync
+            if (Math.random() > 0.92) {
+                setDisplayScore(scoreRef.current);
+                setDisplayStreak(streakRef.current);
+                const elapsed = now - startTimeRef.current;
+                setTimeLeft(Math.max(0, Math.ceil((GAME_DURATION - elapsed) / 1000)));
+            }
+
+            // 9) Check game over
+            if (now - startTimeRef.current > GAME_DURATION) {
+                phase.current = 'OVER';
+                setGamePhase('OVER');
+                setFinalScore(scoreRef.current);
+                setDisplayScore(scoreRef.current);
+                setDisplayStreak(streakRef.current);
+
+                onGameOver({
+                    score: scoreRef.current,
+                    xp: Math.floor(scoreRef.current * 1.5),
+                    engagement: 'FIELD_MODE',
+                    viralReached: viralTriggered.current,
+                });
+            }
         }
 
-        targetsRef.current = targetsRef.current.filter(t => !(t.hit && now - t.spawnTime > FALL_DURATION_MS + 1000));
-        setActiveTargets([...targetsRef.current]);
+        // 10) Scanlines (always)
+        drawScanlines(ctx, w, h);
 
-        if (now - gameStartTimeRef.current > 60000) {
-            if (backgroundAudioRef.current) {
-                try { backgroundAudioRef.current.stop(); } catch (err) { }
-            }
-            setEngineState('GAME_OVER');
-            return;
+        // Idle state draws
+        if (phase.current === 'IDLE') {
+            drawCrosshair(ctx, mouseRef.current.x, mouseRef.current.y);
         }
-    }, [engineState]);
+
+        animRef.current = requestAnimationFrame(gameLoop);
+    }, [spawnTarget, triggerShake, spawnParticles, onGameOver, displayCredits]);
+
+    /* ─── Mouse / Touch ─── */
 
     useEffect(() => {
-        if (engineState !== 'PLAYING') return;
-        const tick = () => {
-            gameLoop();
-            requestRef.current = requestAnimationFrame(tick);
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        const rect = () => canvas.getBoundingClientRect();
+
+        const onMove = (e: MouseEvent) => {
+            const r = rect();
+            mouseRef.current = { x: e.clientX - r.left, y: e.clientY - r.top };
         };
-        requestRef.current = requestAnimationFrame(tick);
+        const onTouch = (e: TouchEvent) => {
+            const r = rect();
+            const t = e.touches[0];
+            if (t) mouseRef.current = { x: t.clientX - r.left, y: t.clientY - r.top };
+        };
+
+        canvas.addEventListener('mousemove', onMove);
+        canvas.addEventListener('touchmove', onTouch, { passive: true });
         return () => {
-            if (requestRef.current) cancelAnimationFrame(requestRef.current);
+            canvas.removeEventListener('mousemove', onMove);
+            canvas.removeEventListener('touchmove', onTouch);
         };
-    }, [engineState, gameLoop]);
+    }, []);
 
-    const fireWeapon = useCallback(() => {
-        if (engineState !== 'PLAYING') return;
+    /* ─── Click / Tap = Fire ─── */
 
-        setGunRecoil(true);
-        setTimeout(() => setGunRecoil(false), 100);
+    const handleFire = useCallback((clientX: number, clientY: number) => {
+        if (phase.current !== 'PLAYING') return;
+        const canvas = canvasRef.current;
+        if (!canvas) return;
 
-        const active = targetsRef.current.filter(t => !t.hit && !t.missed);
+        const r = canvas.getBoundingClientRect();
+        const mx = clientX - r.left;
+        const my = clientY - r.top;
+        mouseRef.current = { x: mx, y: my };
+
         let hitMade = false;
-
-        for (const t of active) {
-            if (t.y >= HIT_ZONE_Y - HIT_TOLERANCE && t.y <= HIT_ZONE_Y + HIT_TOLERANCE) {
+        for (const t of targetsRef.current) {
+            if (t.hit || t.missed) continue;
+            const dx = mx - t.x;
+            const dy = my - t.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < t.radius + 16) {
                 t.hit = true;
                 hitMade = true;
+                scoreRef.current += 10;
+                streakRef.current += 1;
+                if (streakRef.current > maxStreakRef.current) maxStreakRef.current = streakRef.current;
 
-                setHitFlash(true);
-                setTimeout(() => setHitFlash(false), 100);
+                spawnParticles(t.x, t.y, 18);
+
+                // Viral check
+                if (streakRef.current >= VIRAL_STREAK && !viralTriggered.current) {
+                    viralTriggered.current = true;
+                    onViralStreak({ credits: 25, xp: 200 });
+                }
                 break;
             }
         }
 
-        if (hitMade) {
-            scoreRef.current += 10;
-            setScore(scoreRef.current);
-            streakRef.current += 1;
-            setStreak(streakRef.current);
-
-            if (streakRef.current === 20 && !jackpotClaimedRef.current) {
-                jackpotClaimedRef.current = true;
-                setEngineState('JACKPOT');
-                processJackpot();
-            }
-        } else {
+        if (!hitMade) {
             streakRef.current = 0;
-            setStreak(0);
+            triggerShake(12);
         }
-    }, [engineState, processJackpot]);
+
+        setDisplayScore(scoreRef.current);
+        setDisplayStreak(streakRef.current);
+    }, [spawnParticles, triggerShake, onViralStreak]);
 
     useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.code === 'Space') {
-                e.preventDefault();
-                fireWeapon();
-            }
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const onClick = (e: MouseEvent) => handleFire(e.clientX, e.clientY);
+        const onTouchEnd = (e: TouchEvent) => {
+            const t = e.changedTouches[0];
+            if (t) handleFire(t.clientX, t.clientY);
         };
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [fireWeapon]);
+        canvas.addEventListener('click', onClick);
+        canvas.addEventListener('touchend', onTouchEnd);
+        return () => {
+            canvas.removeEventListener('click', onClick);
+            canvas.removeEventListener('touchend', onTouchEnd);
+        };
+    }, [handleFire]);
 
-    if (engineState === 'LOADING') {
-        return (
-            <div className="relative w-full max-w-3xl aspect-[3/4] md:aspect-video border-2 border-white bg-black/90 flex flex-col items-center justify-center p-8 text-center animate-pulse">
-                <span className="material-symbols-outlined text-white text-6xl mb-4 animate-spin">sync</span>
-                <h2 className="text-2xl font-black uppercase text-white tracking-widest mb-2">Mounting Assets</h2>
-                <p className="font-mono text-sm uppercase text-white/50 tracking-widest">Constructing active combat environment...</p>
-            </div>
-        );
-    }
+    /* ─── Start Loop ─── */
+
+    useEffect(() => {
+        animRef.current = requestAnimationFrame(gameLoop);
+        return () => cancelAnimationFrame(animRef.current);
+    }, [gameLoop]);
+
+    /* ─── Ignition ─── */
+
+    const handleIgnition = () => {
+        onGameStart((ok) => {
+            if (!ok) return;
+            phase.current = 'PLAYING';
+            scoreRef.current = 0;
+            streakRef.current = 0;
+            maxStreakRef.current = 0;
+            viralTriggered.current = false;
+            targetsRef.current = [];
+            particlesRef.current = [];
+            startTimeRef.current = Date.now();
+            lastSpawnRef.current = Date.now();
+            setDisplayScore(0);
+            setDisplayStreak(0);
+            setTimeLeft(30);
+            setGamePhase('PLAYING');
+        });
+    };
+
+    /* ═══════════════════════════════════════════════════════════════════════════
+       RENDER
+       ═══════════════════════════════════════════════════════════════════════════ */
 
     return (
-        <div className="relative w-full max-w-5xl aspect-[16/9] border-2 border-white bg-black/90 overflow-hidden flex flex-col items-center select-none" onClick={fireWeapon}>
-            {/* CRT SCANLINE OVERLAY */}
-            <div className="absolute inset-0 pointer-events-none z-50 mix-blend-overlay opacity-30 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))]" style={{ backgroundSize: '100% 4px, 3px 100%' }}></div>
-            <div className="absolute inset-0 pointer-events-none z-50 shadow-[inset_0_0_150px_rgba(0,0,0,1)]"></div>
+        <div ref={containerRef} className="w-full max-w-4xl mx-auto flex flex-col items-center gap-6 relative" style={{ cursor: 'none' }}>
 
-            <style>{`
-                 @keyframes fall {
-                     0% { transform: translateY(-100px) rotate(0deg); }
-                     100% { transform: translateY(1000px) rotate(360deg); }
-                 }
-             `}</style>
+            {/* ── Canvas ── */}
+            <div className="relative w-full aspect-[16/10] border border-cyan-900/60 overflow-hidden bg-black shadow-[0_0_60px_rgba(0,255,255,0.06)]">
+                <canvas
+                    ref={canvasRef}
+                    className="absolute inset-0 w-full h-full"
+                    style={{ width: '100%', height: '100%' }}
+                />
 
-            {/* ENGINE ERROR BANNER (visible fallback) */}
-            {engineError && (
-                <div className="absolute top-0 left-0 right-0 z-[60] bg-red-900/90 border-b-2 border-red-500 px-4 py-2 flex items-center gap-3 pointer-events-none">
-                    <span className="material-symbols-outlined text-red-400 text-lg">warning</span>
-                    <span className="font-mono text-[10px] text-red-300 uppercase tracking-widest truncate">AUDIO FALLBACK: {engineError}</span>
-                </div>
-            )}
-
-            {/* PULSING ENVIRONMENT CONTENT */}
-            <div className={`absolute inset-0 transition-all duration-[50ms] pointer-events-none ${beatFrame % 2 === 0 ? 'scale-[1.01] brightness-110' : 'scale-100 brightness-100'} bg-[#0a0a1a]`}>
-                {/* Background Details */}
-                <div className="absolute left-[8%] top-[35%] font-mono text-cyan-400 text-4xl font-bold opacity-60 drop-shadow-[0_0_12px_#22d3ee] border-4 border-cyan-400/50 px-4 py-2 transform -skew-y-3">LOUNGE</div>
-                <div className="absolute right-[8%] top-[35%] font-mono text-pink-500 text-3xl font-bold opacity-40 drop-shadow-[0_0_10px_#ec4899] border-4 border-pink-500/30 px-3 py-1 transform skew-y-3 blur-[1px]">XXX</div>
-
-                {/* Brickwall Lines */}
-                <div className="absolute inset-0 bg-[linear-gradient(transparent_49%,rgba(255,255,255,0.02)_50%)] bg-[length:100%_20px]"></div>
-
-                {/* Wet Floor Reflection */}
-                <div className="absolute bottom-0 w-full h-[45%] bg-gradient-to-t from-[#0d1645] via-[#080d24] to-transparent z-0 overflow-hidden">
-                    <div className="absolute inset-0 bg-[linear-gradient(transparent_49%,rgba(34,211,238,0.1)_50%)] bg-[length:100%_4px] transform perspective-[500px] rotateX-[70deg] scale-150 transform-origin-bottom"></div>
-                </div>
-
-                {/* Left Dancer on Pole */}
-                <div className="absolute left-[20%] bottom-[15%] z-10">
-                    <div className="absolute bottom-0 w-[4px] h-[75vh] bg-[#334155] border-x border-[#1e293b] left-1/2 -translate-x-1/2 shadow-[0_0_20px_rgba(34,211,238,0.3)] content-['']"></div>
-                    <div className={`relative flex flex-col items-center justify-center transition-transform duration-[50ms] ${beatFrame % 2 === 0 ? '-translate-y-2' : ''} ${beatFrame === 1 ? 'skew-x-2' : beatFrame === 3 ? '-skew-x-2' : ''}`}>
-                        <svg width="150" height="350" viewBox="0 0 100 200" className="drop-shadow-[0_0_15px_#22d3ee] filter">
-                            <path d="M 50 15 C 55 15, 60 20, 58 28 C 55 35, 45 40, 48 50 C 50 60, 65 65, 60 85 C 58 100, 45 120, 42 160 C 40 170, 45 180, 55 180" fill="black" stroke="#22d3ee" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                            <path d="M 48 50 C 35 60, 25 75, 30 90" fill="none" stroke="#22d3ee" strokeWidth="2.5" strokeLinecap="round" />
-                            <path d="M 55 35 C 75 30, 85 45, 80 65" fill="none" stroke="#22d3ee" strokeWidth="2.5" strokeLinecap="round" />
-                        </svg>
-                    </div>
-                </div>
-
-                {/* Right Dancer on Pole */}
-                <div className="absolute right-[20%] bottom-[15%] z-10">
-                    <div className="absolute bottom-0 w-[4px] h-[75vh] bg-[#334155] border-x border-[#1e293b] left-1/2 -translate-x-1/2 shadow-[0_0_20px_rgba(34,211,238,0.3)] content-['']"></div>
-                    <div className={`relative flex flex-col items-center justify-center transition-transform duration-[50ms] scale-x-[-1] ${beatFrame % 2 === 0 ? '-translate-y-2' : ''} ${beatFrame === 1 ? '-skew-x-2' : beatFrame === 3 ? 'skew-x-2' : ''}`}>
-                        <svg width="150" height="350" viewBox="0 0 100 200" className="drop-shadow-[0_0_15px_#22d3ee] filter">
-                            <path d="M 50 15 C 55 15, 60 20, 58 28 C 55 35, 45 40, 48 50 C 50 60, 65 65, 60 85 C 58 100, 45 120, 42 160 C 40 170, 45 180, 55 180" fill="black" stroke="#22d3ee" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                            <path d="M 48 50 C 35 60, 25 75, 30 90" fill="none" stroke="#22d3ee" strokeWidth="2.5" strokeLinecap="round" />
-                            <path d="M 55 35 C 75 30, 85 45, 80 65" fill="none" stroke="#22d3ee" strokeWidth="2.5" strokeLinecap="round" />
-                        </svg>
-                    </div>
-                </div>
-            </div>
-
-            {/* UPPER HUD */}
-            <div className="absolute top-8 left-8 right-8 flex justify-between items-start z-40 pointer-events-none">
-                <div className="w-1/3">
-                    <span className="font-mono text-xl md:text-3xl font-bold text-cyan-400 drop-shadow-[0_0_10px_#22d3ee]">SCORE: {score.toString().padStart(4, '0')}</span>
-                </div>
-
-                <div className="w-1/3 flex flex-col items-center pt-2">
-                    <span className="font-mono text-2xl md:text-4xl font-bold text-yellow-400 drop-shadow-[0_0_10px_#facc15] tracking-widest leading-none mb-2">STREAK: {streak}/20</span>
-                    <div className={`w-full max-w-sm h-6 border-4 border-yellow-400/80 p-[2px] flex gap-[2px] ${comboGlitch ? 'opacity-50 blur-[2px] -translate-x-2 translate-y-1' : ''}`}>
-                        {Array.from({ length: 20 }).map((_, i) => (
-                            <div key={i} className={`h-full flex-1 ${i < streak ? 'bg-yellow-400 shadow-[0_0_5px_#facc15]' : 'bg-transparent'}`}></div>
-                        ))}
-                    </div>
-                </div>
-
-                <div className="w-1/3 flex flex-col items-end">
-                    <span className="font-mono text-xl md:text-3xl font-bold text-white drop-shadow-[0_0_8px_white] mb-1">P1</span>
-                    <span className="font-mono text-xl md:text-3xl font-bold text-white drop-shadow-[0_0_8px_white]">CREDITS: {userDoc?.credits || 0}</span>
-                </div>
-            </div>
-
-            {/* LOWER STATS HUD */}
-            <div className="absolute bottom-8 right-8 z-40 pointer-events-none flex items-center gap-3">
-                <span className={`w-6 h-6 rounded-full transition-all duration-75 ${engineState === 'PLAYING' && beatFrame % 2 === 0 ? 'bg-[#4ade80] shadow-[0_0_20px_#4ade80] scale-110 brightness-150' : engineState === 'PLAYING' ? 'bg-[#4ade80]/60' : 'bg-red-500'}`}></span>
-                <span className="font-mono text-2xl md:text-3xl font-bold text-[#4ade80] drop-shadow-[0_0_10px_#4ade80]">SYNC: OK</span>
-            </div>
-
-            {/* BOTTOM CENTER HUD */}
-            <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 z-40 pointer-events-none flex flex-col items-center">
-                <span className="font-mono text-lg md:text-2xl font-bold text-white drop-shadow-[0_0_8px_white] tracking-widest">LEVEL 01</span>
-                <span className="font-mono text-lg md:text-2xl font-bold text-white drop-shadow-[0_0_8px_white] tracking-widest">HANDOUT TRACK (114 BPM)</span>
-            </div>
-
-            {/* ISOMETRIC ENGINE VIEW */}
-            <div className="absolute inset-0 flex items-center justify-center overflow-hidden z-20 perspective-[1000px] pointer-events-none">
-                <div className="w-[100px] md:w-[200px] h-[200%] absolute top-[-50%] border-x-2 border-white/10 transform rotateX-60 scale-y-150 origin-bottom flex justify-center" style={{ transform: 'rotateX(55deg) scaleY(1.5)' }}>
-                    <div className="absolute inset-0 w-full h-full" style={{ backgroundImage: 'linear-gradient(to bottom, transparent 95%, rgba(255,255,255,0.05) 95%)', backgroundSize: '100% 50px' }}></div>
-
-                    <div className={`absolute w-full h-8 border-y-2 flex items-center justify-center transition-colors ${hitFlash ? 'border-white bg-white/40 shadow-[0_0_20px_white]' : 'border-cyan-500/50 bg-cyan-500/10'}`} style={{ top: `${HIT_ZONE_Y}%` }}>
-                        <span className="font-mono text-[8px] text-cyan-400/80 uppercase tracking-widest">RHYTHM ZONE</span>
-                    </div>
-
-                    {activeTargets.map(t => (
-                        <div
-                            key={t.id}
-                            className={`absolute transform transition-all ease-out`}
-                            style={{
-                                top: `${t.y}%`,
-                                left: `50%`,
-                                marginLeft: `calc(-1.5rem)`, /* half of w-12 */
-                                transform: t.hit
-                                    ? `translate(${t.id > 0.5 ? '-250px' : '250px'}, -150px) scale(0.5) rotate(${t.id > 0.5 ? '-120deg' : '120deg'})`
-                                    : 'scale(1)',
-                                opacity: t.hit ? 0 : 1,
-                                transitionDuration: t.hit ? '600ms' : '0ms'
-                            }}
+                {/* ── IDLE Overlay ── */}
+                {gamePhase === 'IDLE' && (
+                    <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/70 backdrop-blur-sm">
+                        <h2
+                            className="font-mono font-black text-3xl md:text-5xl tracking-[0.35em] uppercase mb-2"
+                            style={{ color: CROSSHAIR_COLOR, textShadow: `0 0 30px ${CROSSHAIR_COLOR}` }}
                         >
-                            {t.hit ? (
-                                /* 8-bit Glowing Cash Bill Sprite */
-                                <div className="w-20 h-10 bg-[#166534] border-[3px] border-[#4ade80] relative shadow-[0_0_25px_#22c55e] transform -skew-x-12">
-                                    <div className="absolute inset-1 border-[2px] border-[#4ade80] flex items-center justify-center bg-[#15803d]/50">
-                                        <span className="text-xl text-[#4ade80] font-bold font-mono drop-shadow-[0_0_10px_#4ade80]">$</span>
-                                    </div>
-                                </div>
-                            ) : (
-                                /* Normal Target (Invisible as gameplay expects hits to spawn bills, but keep for layout) */
-                                <div className="opacity-0 w-12 h-12"></div>
-                            )}
-                        </div>
-                    ))}
-                </div>
-            </div>
-
-            {/* FIRST PERSON WEAPON (Money Gun) */}
-            <div className="absolute bottom-[-5%] left-1/2 transform -translate-x-1/2 z-30 pointer-events-none scale-125 origin-bottom">
-                <div className={`transition-transform duration-[50ms] ease-out flex flex-col items-center ${gunRecoil ? 'translate-y-6 scale-[0.98] rotate-1' : 'translate-y-0 scale-100 rotate-0'}`}>
-                    <div className="relative w-32 h-64 bg-[#1e293b] border-4 border-cyan-400/80 shadow-[0_0_30px_rgba(34,211,238,0.3)] transform perspective-[1000px] rotateX-[30deg]">
-                        {/* Glowing "MONEY" Decal */}
-                        <div className="absolute top-1/2 left-0 transform -translate-y-1/2 -rotate-90 -translate-x-[40px] origin-center font-mono text-3xl font-black italic tracking-widest text-[#22d3ee] drop-shadow-[0_0_15px_#22d3ee]">
-                            MONEY
-                        </div>
-                        {/* Gun Detail Lines */}
-                        <div className="absolute top-0 w-full h-8 border-b-4 border-cyan-400/60 bg-[#0f172a] flex justify-center items-center">
-                            <div className="w-6 h-2 rounded bg-cyan-300 shadow-[0_0_15px_#67e8f9]"></div>
-                        </div>
-                        <div className="absolute top-12 left-2 right-2 h-1 bg-[#334155]"></div>
-                        <div className="absolute top-16 left-2 right-2 h-1 bg-[#334155]"></div>
-                        <div className="absolute top-20 left-2 right-2 h-1 bg-[#334155]"></div>
-                        <div className="absolute bottom-0 w-full h-1/3 bg-black/60 border-t-4 border-cyan-400/40"></div>
+                            FIELD MODE
+                        </h2>
+                        <p className="font-mono text-[11px] text-cyan-400/60 uppercase tracking-[0.2em] mb-10">
+                            114 BPM &bull; 30s Round &bull; Geometric Targets
+                        </p>
+                        <button
+                            onClick={handleIgnition}
+                            className="px-10 py-4 font-mono font-bold text-sm tracking-[0.3em] uppercase border-2 border-cyan-500 text-cyan-400 bg-black/80 hover:bg-cyan-500 hover:text-black transition-all duration-200 shadow-[0_0_30px_rgba(0,255,255,0.15)]"
+                            style={{ cursor: 'pointer' }}
+                        >
+                            INITIATE SEQUENCE
+                        </button>
+                        <p className="font-mono text-[10px] text-white/30 mt-6 uppercase tracking-[0.15em]">
+                            Ante: 10 CR &bull; Jackpot at {VIRAL_STREAK} Streak
+                        </p>
                     </div>
-                </div>
-            </div>
+                )}
 
-            {/* JACKPOT OVERLAY */}
-            {engineState === 'JACKPOT' && (
-                <div className="absolute inset-0 z-50 bg-black/80 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center animate-in fade-in zoom-in duration-500 pointer-events-auto cursor-auto overflow-hidden text-white border-4 border-yellow-400 shadow-[inset_0_0_50px_#facc15]" onClick={(e) => e.stopPropagation()}>
-                    {/* Golden Cash Rain */}
-                    <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
-                        {CASH_RAIN_DROPS.map((drop, i) => (
-                            <div
-                                key={i}
-                                className="absolute w-4 h-8 bg-yellow-400 border-2 border-yellow-200"
-                                style={{
-                                    left: `${drop.left}%`,
-                                    top: `-10%`,
-                                    animation: `fall ${drop.duration}s linear infinite`,
-                                    animationDelay: `${drop.delay}s`
-                                }}
-                            ></div>
-                        ))}
-                    </div>
+                {/* ── GAME OVER Overlay ── */}
+                {gamePhase === 'OVER' && (
+                    <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/85 backdrop-blur-md">
+                        <h2
+                            className="font-mono font-black text-3xl md:text-4xl tracking-[0.3em] uppercase mb-1"
+                            style={{ color: '#FF3333', textShadow: '0 0 20px rgba(255,50,50,0.5)' }}
+                        >
+                            SIGNAL LOST
+                        </h2>
+                        <p className="font-mono text-[10px] text-red-400/60 uppercase tracking-[0.2em] mb-8">
+                            Connection Terminated
+                        </p>
 
-                    <span className="material-symbols-outlined text-yellow-400 text-7xl mb-4 animate-bounce relative z-10 shadow-[0_0_30px_#facc15]">diamond</span>
-                    <h1 className="text-5xl md:text-7xl font-black font-display uppercase text-yellow-400 tracking-widest mb-4 relative z-10 drop-shadow-[0_0_20px_rgba(250,204,21,0.5)]">JACKPOT!</h1>
-                    <p className="font-mono text-white/90 mb-8 uppercase tracking-widest text-sm max-w-md leading-relaxed relative z-10">
-                        You locked onto the frequency perfectly.<br />
-                        The payout has been wired directly to your ledger.
-                    </p>
-                    <div className="font-mono text-xl border border-yellow-500/50 bg-yellow-500/20 px-8 py-5 mb-8 text-yellow-300 relative z-10 shadow-[0_0_20px_#ca8a04] animate-pulse">
-                        +25 CR | +200 XP
-                    </div>
-                    <button
-                        onClick={onExit}
-                        className="px-10 py-5 bg-white text-black font-bold uppercase tracking-widest transition-all hover:bg-slate-200 relative z-10"
-                    >
-                        RETURN TO COMMAND
-                    </button>
-                </div>
-            )}
-
-            {/* GAMEOVER OVERLAY */}
-            {engineState === 'GAME_OVER' && (
-                <div className="absolute inset-0 z-50 bg-black/90 backdrop-blur-xl flex flex-col items-center justify-center p-6 text-center animate-in fade-in duration-500 relative pointer-events-auto cursor-auto" onClick={(e) => e.stopPropagation()}>
-                    <h1 className="text-4xl md:text-6xl font-black uppercase text-white tracking-widest mb-2 drop-shadow-[0_0_15px_rgba(255,255,255,0.5)]">MISSION EXPIRED</h1>
-                    <p className="font-mono text-white/50 mb-8 uppercase tracking-widest text-xs">CONNECTION TERMINATED</p>
-
-                    <div className="w-full max-w-sm border border-white/20 bg-black mb-8">
-                        <div className="flex justify-between p-4 border-b border-white/10">
-                            <span className="font-mono text-slate-400 uppercase text-xs">FINAL SCORE</span>
-                            <span className="font-mono text-white font-bold">{score}</span>
-                        </div>
-                        <div className="flex justify-between p-4 border-b border-white/10">
-                            <span className="font-mono text-slate-400 uppercase text-xs">CREDITS EARNED</span>
-                            <span className="font-mono text-white font-bold">0</span>
-                        </div>
-                        <div className="flex justify-between p-4 border-b border-white/10">
-                            <span className="font-mono text-slate-400 uppercase text-xs">BASE XP AWARDED</span>
-                            <span className="font-mono text-white font-bold">+100 XP</span>
-                        </div>
-                        <div className="flex justify-between p-4 items-center">
-                            <span className="font-mono text-slate-400 uppercase text-xs">XP UNCLAIMED</span>
-                            <span className="font-mono text-yellow-600 font-bold blur-[1px] select-none">+50 XP</span>
-                        </div>
-                    </div>
-
-                    <div className="relative w-full max-w-sm mb-8 rounded-lg overflow-hidden group">
-                        <div className="absolute inset-0 bg-yellow-500/20 blur-md animate-pulse"></div>
-                        <div className="relative border border-yellow-500/50 bg-black/80 p-6 flex flex-col items-center text-center">
-                            <div className="text-yellow-500 flex items-center gap-2 mb-2">
-                                <span className="material-symbols-outlined text-sm">warning</span>
-                                <span className="font-mono text-[10px] font-bold tracking-widest">CITIZEN ALERT: YOU ARE OPERATING ON A LIMITED FREQUENCY.</span>
+                        <div className="w-full max-w-xs border border-white/15 bg-black/60 mb-8 font-mono text-xs">
+                            <div className="flex justify-between p-3 border-b border-white/10">
+                                <span className="text-white/40 uppercase tracking-widest">Final Score</span>
+                                <span className="text-white font-bold">{finalScore}</span>
                             </div>
-                            <p className="font-mono text-[10px] text-slate-400 uppercase tracking-widest leading-relaxed">
-                                By remaining on the Free Tier, you just forfeited 50 XP.<br />
-                                Standard Tier Citizens receive a 1.5x Multiplier on every mission.
-                            </p>
+                            <div className="flex justify-between p-3 border-b border-white/10">
+                                <span className="text-white/40 uppercase tracking-widest">Max Streak</span>
+                                <span className="text-cyan-400 font-bold">{maxStreakRef.current}x</span>
+                            </div>
+                            <div className="flex justify-between p-3">
+                                <span className="text-white/40 uppercase tracking-widest">Viral Bonus</span>
+                                <span className={viralTriggered.current ? 'text-green-400 font-bold' : 'text-white/30'}>
+                                    {viralTriggered.current ? '+25 CR' : '—'}
+                                </span>
+                            </div>
+                        </div>
+
+                        <div className="flex gap-4">
+                            <button
+                                onClick={handleIgnition}
+                                className="px-8 py-3 font-mono font-bold text-xs tracking-[0.25em] uppercase border border-cyan-500 text-cyan-400 bg-black hover:bg-cyan-500 hover:text-black transition-all"
+                                style={{ cursor: 'pointer' }}
+                            >
+                                RE-DEPLOY
+                            </button>
+                            <button
+                                onClick={onExit}
+                                className="px-8 py-3 font-mono font-bold text-xs tracking-[0.25em] uppercase border border-white/20 text-white/50 bg-black hover:bg-white hover:text-black transition-all"
+                                style={{ cursor: 'pointer' }}
+                            >
+                                EXIT
+                            </button>
                         </div>
                     </div>
+                )}
+            </div>
 
-                    <div className="flex flex-col gap-4 max-w-sm w-full">
-                        <button
-                            onClick={() => router.push('/ascension')}
-                            className="w-full px-8 py-4 bg-white text-black font-bold uppercase tracking-widest transition-all hover:bg-slate-200"
-                        >
-                            ASCEND TO STANDARD TIER (1.5x XP)
-                        </button>
-                        <button
-                            onClick={onExit}
-                            className="w-full px-8 py-4 bg-transparent text-white font-bold uppercase tracking-widest border border-white/20 transition-all hover:bg-white hover:text-black"
-                        >
-                            RETURN TO COMMAND CENTER
-                        </button>
-                    </div>
+            {/* ── Bottom Status Bar ── */}
+            {gamePhase === 'PLAYING' && (
+                <div className="w-full flex justify-between items-center font-mono text-[10px] text-cyan-500/50 uppercase tracking-[0.2em] px-1">
+                    <span>BPM: {BPM}</span>
+                    <span>FIELD MODE ACTIVE</span>
+                    <span>{timeLeft}s REMAINING</span>
                 </div>
             )}
 
-            {/* Desktop Instruction */}
-            {engineState === 'PLAYING' && (
-                <div className="absolute bottom-[20%] left-1/2 transform -translate-x-1/2 z-30 pointer-events-none text-center mix-blend-overlay opacity-50">
-                    <span className="block md:hidden font-mono text-sm font-bold uppercase text-white tracking-widest drop-shadow-md">TAP SCREEN TO FIRE</span>
-                    <span className="hidden md:block font-mono text-sm font-bold uppercase text-white tracking-widest drop-shadow-md">PRESS [SPACE] TO FIRE</span>
-                </div>
+            {/* ── Exit (non-playing) ── */}
+            {gamePhase === 'IDLE' && (
+                <button
+                    onClick={onExit}
+                    className="font-mono text-[10px] text-white/30 uppercase tracking-[0.2em] hover:text-white/70 transition-colors mt-2"
+                    style={{ cursor: 'pointer' }}
+                >
+                    ← Return to Arcade Hub
+                </button>
             )}
         </div>
     );

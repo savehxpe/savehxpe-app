@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { doc, runTransaction, arrayUnion, updateDoc } from 'firebase/firestore';
@@ -24,7 +24,7 @@ export default function Dashboard() {
 
     useEffect(() => {
         if (userDoc?.ascensionVerifiedToast && firebaseUser) {
-            setShowAscensionToast(true);
+            setTimeout(() => setShowAscensionToast(true), 0);
             const userRef = doc(db, 'users', firebaseUser.uid);
             updateDoc(userRef, { ascensionVerifiedToast: false }).catch(console.error);
             setTimeout(() => setShowAscensionToast(false), 6000);
@@ -209,9 +209,9 @@ DARK INDUSTRIAL PHONK X FREDDIE GIBBS FLOW. 150 BPM. DISTORTED 808s, GLITCHED HI
                                 <span className="material-symbols-outlined text-lg">lock_open</span>
                                 The Vault
                             </button>
-                            <button onClick={() => router.push('/no-handouts')} className="flex w-full items-center gap-3 px-4 py-3 text-slate-400 hover:text-white hover:bg-white/5 rounded transition-colors uppercase tracking-wider text-sm">
+                            <button onClick={() => router.push('/arcade')} className="flex w-full items-center gap-3 px-4 py-3 text-slate-400 hover:text-white hover:bg-white/5 rounded transition-colors uppercase tracking-wider text-sm">
                                 <span className="material-symbols-outlined text-lg">videogame_asset</span>
-                                No Handouts
+                                Arcade
                             </button>
                             <button onClick={() => router.push('/merch')} className="flex w-full items-center gap-3 px-4 py-3 text-slate-400 hover:text-white hover:bg-white/5 rounded transition-colors uppercase tracking-wider text-sm">
                                 <span className="material-symbols-outlined text-lg">shopping_bag</span>

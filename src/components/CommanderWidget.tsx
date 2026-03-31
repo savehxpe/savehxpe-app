@@ -4,10 +4,12 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { collection, query, orderBy, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { UserDocument } from '@/hooks/useAuth';
+import { User } from 'firebase/auth';
 
 interface CommanderWidgetProps {
-    userDoc: any;
-    firebaseUser: any;
+    userDoc: UserDocument | null;
+    firebaseUser: User | null;
     setPromptInput: (prompt: string) => void;
 }
 

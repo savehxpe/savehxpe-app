@@ -3,6 +3,7 @@ import { Space_Grotesk, Geist_Mono } from 'next/font/google';
 import './globals.css';
 import { AuthProvider } from '@/hooks/useAuth';
 import CursorWrapper from '@/components/CursorWrapper';
+import CitizenOnboarding from '@/components/CitizenOnboarding';
 
 const spaceGrotesk = Space_Grotesk({
   subsets: ['latin'],
@@ -36,14 +37,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className={`dark ${spaceGrotesk.variable} ${geistMono.variable}`}>
       <head>
         <link rel="manifest" href="/manifest.json" />
-        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        {/* eslint-disable-next-line @next/next/no-page-custom-font */}
         <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
       </head>
       <body className="antialiased">
         <CursorWrapper />
         <AuthProvider>
           {children}
+          <CitizenOnboarding />
         </AuthProvider>
       </body>
     </html>

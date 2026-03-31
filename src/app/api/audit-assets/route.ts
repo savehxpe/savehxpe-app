@@ -25,12 +25,12 @@ export async function GET() {
                 message: 'Asset 404. HANDOUT_MASTER.wav not found in bucket.'
             }, { status: 404 });
         }
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('Audit Error:', error);
         return NextResponse.json({
             status: 'FATAL',
-            error: error.message,
-            code: error.code
+            error: error instanceof Error ? error.message : String(error),
+            code: (error as { code?: string })?.code || 'UNKNOWN'
         }, { status: 500 });
     }
 }

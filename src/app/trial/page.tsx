@@ -85,7 +85,7 @@ export default function TrialActivation() {
                                     <span className="material-symbols-outlined text-white text-xl">lock_open</span>
                                     <div>
                                         <h3 className="text-white text-xs font-bold tracking-widest uppercase">Exclusive Vault Access</h3>
-                                        <p className="text-zinc-500 text-[9px] uppercase tracking-wider mt-1">Unfiltered entry to the 'HANDOUT' archives</p>
+                                        <p className="text-zinc-500 text-[9px] uppercase tracking-wider mt-1">Unfiltered entry to the &apos;HANDOUT&apos; archives</p>
                                     </div>
                                 </div>
                             </div>
@@ -93,6 +93,7 @@ export default function TrialActivation() {
                         <div className="mt-8 pt-8 border-t border-white/10">
                             <div className="flex items-center gap-3">
                                 <div className="w-8 h-8 border border-white/20 flex items-center justify-center grayscale overflow-hidden relative">
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
                                     <img alt="Thumbnail" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCJ7VFnjDIOdlTJ4BFVRODok53QLROyFM_ktGtzhGMslAEQA10wadj7t5qD8nbwGCu1OlBaw-dvUzZ3swkBDeAWXWpP1tp9TSQn8RMs3maUkUGEwvMDYP0ksFpuaJa50YoohX73x6zPuxxkbWClROZk5ASrqx1PP7xQKGiQY4VE0juSyVpBR14CiIB4ZG05n8rFzJeMAfXjc9Z-uHnfWPqdvLLkoOuopVVBok4kZkJo4D9Qem6tgGKRG0rlTCGuHuy_VvNEvyPAXZ8" className="object-cover opacity-50 absolute inset-0 w-full h-full" />
                                 </div>
                                 <p className="text-[9px] text-zinc-400 tracking-widest uppercase font-bold italic">Verification Required for Trial Activation</p>

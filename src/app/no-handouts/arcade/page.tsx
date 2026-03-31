@@ -21,7 +21,7 @@ function CanvasCorridor({ isPro }: { isPro: boolean }) {
     const animRef = useRef<number>(0);
     const offsetRef = useRef(0);
 
-    const draw = useCallback(() => {
+    const draw = useCallback(function drawFrame() {
         const canvas = canvasRef.current;
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
@@ -86,7 +86,7 @@ function CanvasCorridor({ isPro }: { isPro: boolean }) {
             ctx.stroke();
         }
 
-        animRef.current = requestAnimationFrame(draw);
+        animRef.current = requestAnimationFrame(drawFrame);
     }, [isPro]);
 
     useEffect(() => {
@@ -310,12 +310,11 @@ export default function ArcadeMissionSector() {
         }
 
         reqRef.current = requestAnimationFrame(gameLoop);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [gameState, mode, BEAT_MS]);
 
     const endGame = () => {
         setGameState('GAMEOVER');
-
-        const accuracy = totalSpawnRef.current > 0 ? (hitsRef.current / totalSpawnRef.current) : 0;
 
         // Track precision history (Screen 5 logic)
         precisionHistory.current.push({ hits: hitsRef.current, total: totalSpawnRef.current });
@@ -373,6 +372,7 @@ export default function ArcadeMissionSector() {
         }
 
         if (!hitMade) handleMiss();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [gameState, mode]);
 
     const triggerJackpot = async () => {
@@ -413,7 +413,7 @@ export default function ArcadeMissionSector() {
 
         // Synchronous AudioContext initialization for mobile unlock
         try {
-            const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+            const AudioContext = window.AudioContext || (window as unknown as { webkitAudioContext: typeof window.AudioContext }).webkitAudioContext;
             if (AudioContext) {
                 const ctx = new AudioContext();
                 ctx.resume();
@@ -454,10 +454,11 @@ export default function ArcadeMissionSector() {
             setGameState('PLAYING');
             setTelemetry({ bpm: selectedMode === 'PRO' ? 140 : 120, latency: 16, engineActive: true, syncRate: "100%" });
 
-        } catch (e: any) {
+        } catch (e: unknown) {
             console.error("Start Error:", e);
-            setErrorMsg(e.message || "SYNC ERROR");
-            window.alert(`[ERROR]: ${e.message || "SYNC ERROR"}`);
+            const msg = e instanceof Error ? e.message : String(e);
+            setErrorMsg(msg || "SYNC ERROR");
+            window.alert(`[ERROR]: ${msg || "SYNC ERROR"}`);
         } finally {
             setIsProcessing(false);
         }
@@ -757,7 +758,7 @@ export default function ArcadeMissionSector() {
                                 </div>
 
                                 <div className="bg-white p-3 shadow-[0_0_30px_rgba(255,255,255,0.2)]">
-                                    <QRCodeSVG value={`https://savehxpe.com/gateway?ref=${userDoc?.inviteCode || 'null'}`} size={120} />
+                                    <QRCodeSVG value={`https://www.savehxpe.com/gateway?ref=${userDoc?.inviteCode || 'null'}`} size={120} />
                                 </div>
                                 <p className="font-mono text-[9px] text-white/40 mt-6 tracking-[0.3em] uppercase">SCAN TO JOIN SECURE NETWORK</p>
                             </div>
@@ -775,6 +776,13 @@ export default function ArcadeMissionSector() {
                     </div>
                 )}
             </main>
+
+            {/* --- GLOBAL FOOTER --- */}
+            {gameState !== 'PLAYING' && (
+                <footer className="w-full text-center py-6 relative z-20 pointer-events-none bg-transparent">
+                    <p className="text-slate-500 text-[10px] font-normal leading-normal uppercase tracking-[0.4em]">© 2026 OUTWORLD LLC.</p>
+                </footer>
+            )}
         </div>
     );
 }

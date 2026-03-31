@@ -5,7 +5,7 @@ import { useAuth } from '@/hooks/useAuth';
 
 export default function Transmission() {
     const router = useRouter();
-    const { userDoc } = useAuth(); // Could be used to display user's ID or name
+    const { } = useAuth(); // Could be used to display user's ID or name
 
     return (
         <div className="bg-background-light text-slate-900 font-display min-h-screen flex flex-col overflow-x-hidden selection:bg-black selection:text-white">
