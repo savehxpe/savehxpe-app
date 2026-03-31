@@ -12,11 +12,10 @@ interface Target {
     y: number;
     radius: number;
     spawnTime: number;
-    lifetime: number;       // ms before auto-expire
+    lifetime: number;
     hit: boolean;
     missed: boolean;
-    pulsePhase: number;     // randomized start phase
-    shape: 'diamond' | 'circle' | 'hexagon';
+    pulsePhase: number;
 }
 
 interface Particle {
@@ -27,7 +26,7 @@ interface Particle {
     life: number;
     maxLife: number;
     color: string;
-    text?: string;          // optional '$' symbol
+    text?: string;
     size: number;
 }
 
@@ -35,7 +34,7 @@ interface Props {
     credits: number;
     onGameStart: (cb: (ok: boolean) => void) => void;
     onViralStreak: (data: { credits: number; xp: number }) => void;
-    onGameOver: (data: { score: number; xp: number; engagement: string; viralReached: boolean }) => void;
+    onGameOver: (data: { score: number; xp: number; engagement: string; viralReached: boolean; creditBonus: number }) => void;
     onExit: () => void;
 }
 
@@ -43,16 +42,16 @@ interface Props {
    CONSTANTS
    ═══════════════════════════════════════════════════════════════════════════ */
 
+const isDev = process.env.NODE_ENV === 'development';
 const BPM = 114;
-const BEAT_MS = 60000 / BPM;            // ≈526ms
-const SPAWN_INTERVAL = BEAT_MS * 2;     // every 2 beats
-const TARGET_LIFETIME = 2200;           // ms before miss
-const GAME_DURATION = 30000;            // 30s round
+const BEAT_MS = 60000 / BPM;
+const SPAWN_INTERVAL = BEAT_MS * 2;
+const TARGET_LIFETIME = 2200;
+const GAME_DURATION = 30000;
 const VIRAL_STREAK = 20;
-const GRID_COLOR = '#001a1a';
 const GRID_SPACING = 48;
 const CROSSHAIR_COLOR = '#00FFFF';
-const HIT_PARTICLE_COLOR = '#00FF66';
+const BPM_ANGULAR_FREQ = (BPM / 60) * Math.PI * 2;
 
 /* ═══════════════════════════════════════════════════════════════════════════
    COMPONENT
@@ -63,7 +62,6 @@ export default function CashCaliberEngine({ credits, onGameStart, onViralStreak,
     const animRef = useRef<number>(0);
     const containerRef = useRef<HTMLDivElement>(null);
 
-    // Game state refs (avoid re-renders during hot loop)
     const phase = useRef<'IDLE' | 'PLAYING' | 'OVER'>('IDLE');
     const scoreRef = useRef(0);
     const streakRef = useRef(0);
@@ -78,7 +76,6 @@ export default function CashCaliberEngine({ credits, onGameStart, onViralStreak,
     const viralTriggered = useRef(false);
     const nextTargetId = useRef(0);
 
-    // Display state (for HUD overlay)
     const [displayScore, setDisplayScore] = useState(0);
     const [displayStreak, setDisplayStreak] = useState(0);
     const [displayCredits, setDisplayCredits] = useState(credits);
@@ -90,7 +87,6 @@ export default function CashCaliberEngine({ credits, onGameStart, onViralStreak,
 
     const spawnTarget = useCallback((w: number, h: number) => {
         const margin = 80;
-        const shapes: Target['shape'][] = ['diamond', 'circle', 'hexagon'];
         targetsRef.current.push({
             id: nextTargetId.current++,
             x: margin + Math.random() * (w - margin * 2),
@@ -101,24 +97,36 @@ export default function CashCaliberEngine({ credits, onGameStart, onViralStreak,
             hit: false,
             missed: false,
             pulsePhase: Math.random() * Math.PI * 2,
-            shape: shapes[Math.floor(Math.random() * shapes.length)],
         });
     }, []);
 
-    const spawnParticles = useCallback((x: number, y: number, count: number) => {
+    const spawnParticles = useCallback((x: number, y: number, count: number, scoreText?: string) => {
+        // Floating score popup — drifts upward, no gravity
+        if (scoreText) {
+            particlesRef.current.push({
+                x, y: y - 10,
+                vx: (Math.random() - 0.5) * 0.5,
+                vy: -2.5,
+                life: 1,
+                maxLife: 1,
+                color: scoreText === 'CRITICAL' ? '#FF00FF' : CROSSHAIR_COLOR,
+                text: scoreText,
+                size: scoreText === 'CRITICAL' ? 18 : 16,
+            });
+        }
+
+        // Burst particles
         for (let i = 0; i < count; i++) {
             const angle = (Math.PI * 2 * i) / count + Math.random() * 0.4;
             const speed = 2 + Math.random() * 5;
-            const isDollar = Math.random() > 0.6;
             particlesRef.current.push({
                 x, y,
                 vx: Math.cos(angle) * speed,
                 vy: Math.sin(angle) * speed,
                 life: 1,
                 maxLife: 1,
-                color: isDollar ? '#00FF66' : CROSSHAIR_COLOR,
-                text: isDollar ? '$' : undefined,
-                size: isDollar ? 14 : 3 + Math.random() * 4,
+                color: i % 3 === 0 ? '#00FF66' : CROSSHAIR_COLOR,
+                size: 3 + Math.random() * 4,
             });
         }
     }, []);
@@ -134,8 +142,8 @@ export default function CashCaliberEngine({ credits, onGameStart, onViralStreak,
     /* ─── Drawing Helpers ─── */
 
     const drawGrid = (ctx: CanvasRenderingContext2D, w: number, h: number) => {
-        gridOffsetRef.current = (gridOffsetRef.current + 0.3) % GRID_SPACING;
-        ctx.strokeStyle = GRID_COLOR;
+        gridOffsetRef.current = (gridOffsetRef.current + 0.4) % GRID_SPACING;
+        ctx.strokeStyle = 'rgba(0,255,255,0.1)';
         ctx.lineWidth = 1;
         for (let x = -GRID_SPACING + gridOffsetRef.current; x < w + GRID_SPACING; x += GRID_SPACING) {
             ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
@@ -157,52 +165,51 @@ export default function CashCaliberEngine({ credits, onGameStart, onViralStreak,
         const lifeRatio = 1 - elapsed / t.lifetime;
         if (lifeRatio <= 0) return;
 
-        const pulse = 1 + Math.sin(now * 0.008 + t.pulsePhase) * 0.15;
-        const r = t.radius * pulse;
+        // BPM-synced pulse
+        const scale = 1 + Math.sin(now / 1000 * BPM_ANGULAR_FREQ + t.pulsePhase) * 0.1;
+        const r = t.radius * scale;
         const alpha = Math.min(1, lifeRatio * 2);
 
         ctx.save();
         ctx.translate(t.x, t.y);
 
-        // Outer glow
+        // Outer neon glow
         ctx.shadowColor = CROSSHAIR_COLOR;
-        ctx.shadowBlur = 20 + Math.sin(now * 0.006 + t.pulsePhase) * 10;
-        ctx.strokeStyle = `rgba(0,255,255,${alpha * 0.9})`;
-        ctx.lineWidth = 2;
+        ctx.shadowBlur = 25 + Math.sin(now / 1000 * BPM_ANGULAR_FREQ + t.pulsePhase) * 15;
 
-        if (t.shape === 'diamond') {
-            ctx.beginPath();
-            ctx.moveTo(0, -r); ctx.lineTo(r, 0); ctx.lineTo(0, r); ctx.lineTo(-r, 0);
-            ctx.closePath(); ctx.stroke();
-            // inner fill
-            ctx.fillStyle = `rgba(0,255,255,${alpha * 0.08})`;
-            ctx.fill();
-        } else if (t.shape === 'circle') {
-            ctx.beginPath();
-            ctx.arc(0, 0, r, 0, Math.PI * 2);
-            ctx.stroke();
-            ctx.fillStyle = `rgba(0,255,255,${alpha * 0.06})`;
-            ctx.fill();
-        } else {
-            // hexagon
-            ctx.beginPath();
-            for (let i = 0; i < 6; i++) {
-                const a = (Math.PI / 3) * i - Math.PI / 6;
-                const px = Math.cos(a) * r;
-                const py = Math.sin(a) * r;
-                i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
-            }
-            ctx.closePath(); ctx.stroke();
-            ctx.fillStyle = `rgba(0,255,255,${alpha * 0.07})`;
-            ctx.fill();
-        }
+        // Diamond shape
+        ctx.strokeStyle = `rgba(0,255,255,${alpha * 0.95})`;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(0, -r);
+        ctx.lineTo(r, 0);
+        ctx.lineTo(0, r);
+        ctx.lineTo(-r, 0);
+        ctx.closePath();
+        ctx.stroke();
 
-        // Lifetime ring (shrinking)
-        ctx.shadowBlur = 0;
-        ctx.strokeStyle = `rgba(0,255,255,${alpha * 0.25})`;
+        // Inner neon fill
+        ctx.fillStyle = `rgba(0,255,255,${alpha * 0.12})`;
+        ctx.fill();
+
+        // Inner diamond (smaller, brighter)
+        const ri = r * 0.5;
+        ctx.strokeStyle = `rgba(0,255,255,${alpha * 0.5})`;
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.arc(0, 0, r + 8, 0, Math.PI * 2 * lifeRatio);
+        ctx.moveTo(0, -ri);
+        ctx.lineTo(ri, 0);
+        ctx.lineTo(0, ri);
+        ctx.lineTo(-ri, 0);
+        ctx.closePath();
+        ctx.stroke();
+
+        // Lifetime ring (shrinking arc)
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = `rgba(0,255,255,${alpha * 0.3})`;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(0, 0, r + 10, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * lifeRatio);
         ctx.stroke();
 
         ctx.restore();
@@ -217,7 +224,6 @@ export default function CashCaliberEngine({ credits, onGameStart, onViralStreak,
         ctx.shadowBlur = 12;
         ctx.lineWidth = 1.5;
 
-        // Lines
         ctx.beginPath();
         ctx.moveTo(mx - size, my); ctx.lineTo(mx - gap, my);
         ctx.moveTo(mx + gap, my); ctx.lineTo(mx + size, my);
@@ -225,13 +231,11 @@ export default function CashCaliberEngine({ credits, onGameStart, onViralStreak,
         ctx.moveTo(mx, my + gap); ctx.lineTo(mx, my + size);
         ctx.stroke();
 
-        // Center dot
         ctx.fillStyle = CROSSHAIR_COLOR;
         ctx.beginPath();
         ctx.arc(mx, my, 2, 0, Math.PI * 2);
         ctx.fill();
 
-        // Outer ring
         ctx.shadowBlur = 6;
         ctx.lineWidth = 0.8;
         ctx.beginPath();
@@ -250,7 +254,8 @@ export default function CashCaliberEngine({ credits, onGameStart, onViralStreak,
                 ctx.font = `bold ${p.size}px monospace`;
                 ctx.fillStyle = p.color;
                 ctx.shadowColor = p.color;
-                ctx.shadowBlur = 8;
+                ctx.shadowBlur = 12;
+                ctx.textAlign = 'center';
                 ctx.fillText(p.text, p.x, p.y);
             } else {
                 ctx.fillStyle = p.color;
@@ -277,7 +282,7 @@ export default function CashCaliberEngine({ credits, onGameStart, onViralStreak,
         const elapsed = Date.now() - startTimeRef.current;
         const remaining = Math.max(0, Math.ceil((GAME_DURATION - elapsed) / 1000));
         ctx.fillText(`TIME: ${remaining}s`, w - 16, 46);
-        ctx.fillStyle = `rgba(0,255,255,0.15)`;
+        ctx.fillStyle = 'rgba(0,255,255,0.15)';
         ctx.fillRect(0, 0, w, 56);
         ctx.restore();
     };
@@ -299,28 +304,28 @@ export default function CashCaliberEngine({ credits, onGameStart, onViralStreak,
 
         const now = Date.now();
 
-        // Apply screen shake
+        // Screen shake
         if (shakeRef.current.decay > 0) {
             ctx.translate(shakeRef.current.x * shakeRef.current.decay, shakeRef.current.y * shakeRef.current.decay);
             shakeRef.current.decay *= 0.85;
             if (shakeRef.current.decay < 0.01) shakeRef.current.decay = 0;
         }
 
-        // 1) Background
+        // Background
         ctx.fillStyle = '#000000';
         ctx.fillRect(-20, -20, w + 40, h + 40);
 
-        // 2) Grid
+        // Scrolling cyan grid
         drawGrid(ctx, w, h);
 
         if (phase.current === 'PLAYING') {
-            // 3) Spawn targets on beat
+            // Spawn on beat
             if (now - lastSpawnRef.current > SPAWN_INTERVAL) {
                 spawnTarget(w, h);
                 lastSpawnRef.current = now;
             }
 
-            // 4) Check expired targets
+            // Expire missed targets
             targetsRef.current.forEach(t => {
                 if (!t.hit && !t.missed && now - t.spawnTime > t.lifetime) {
                     t.missed = true;
@@ -336,25 +341,25 @@ export default function CashCaliberEngine({ credits, onGameStart, onViralStreak,
                 return true;
             });
 
-            // 5) Draw targets
+            // Draw targets
             targetsRef.current.forEach(t => {
                 if (!t.hit) drawTarget(ctx, t, now);
             });
 
-            // 6) Draw crosshair
+            // Crosshair
             drawCrosshair(ctx, mouseRef.current.x, mouseRef.current.y);
 
-            // 7) Draw particles
+            // Update & draw particles (score popups drift up, burst particles fall)
             particlesRef.current.forEach(p => {
                 p.x += p.vx;
                 p.y += p.vy;
-                p.vy += 0.08; // gravity
+                if (!p.text) p.vy += 0.08; // gravity only on burst particles
                 p.life -= 0.025;
             });
             particlesRef.current = particlesRef.current.filter(p => p.life > 0);
             drawParticles(ctx);
 
-            // 8) HUD
+            // HUD
             drawHUD(ctx, w);
 
             // Periodic React state sync
@@ -365,7 +370,7 @@ export default function CashCaliberEngine({ credits, onGameStart, onViralStreak,
                 setTimeLeft(Math.max(0, Math.ceil((GAME_DURATION - elapsed) / 1000)));
             }
 
-            // 9) Check game over
+            // Game over check
             if (now - startTimeRef.current > GAME_DURATION) {
                 phase.current = 'OVER';
                 setGamePhase('OVER');
@@ -378,20 +383,21 @@ export default function CashCaliberEngine({ credits, onGameStart, onViralStreak,
                     xp: Math.floor(scoreRef.current * 1.5),
                     engagement: 'FIELD_MODE',
                     viralReached: viralTriggered.current,
+                    creditBonus: viralTriggered.current ? 25 : 0,
                 });
             }
         }
 
-        // 10) Scanlines (always)
+        // Scanlines (always)
         drawScanlines(ctx, w, h);
 
-        // Idle state draws
+        // Idle crosshair
         if (phase.current === 'IDLE') {
             drawCrosshair(ctx, mouseRef.current.x, mouseRef.current.y);
         }
 
         animRef.current = requestAnimationFrame(gameLoop);
-    }, [spawnTarget, triggerShake, spawnParticles, onGameOver, displayCredits]);
+    }, [spawnTarget, triggerShake, onGameOver, displayCredits]);
 
     /* ─── Mouse / Touch ─── */
 
@@ -444,7 +450,9 @@ export default function CashCaliberEngine({ credits, onGameStart, onViralStreak,
                 streakRef.current += 1;
                 if (streakRef.current > maxStreakRef.current) maxStreakRef.current = streakRef.current;
 
-                spawnParticles(t.x, t.y, 18);
+                // Score popup: CRITICAL at 5+ streak, +10 otherwise
+                const popupText = streakRef.current >= 5 ? 'CRITICAL' : '+10';
+                spawnParticles(t.x, t.y, 14, popupText);
 
                 // Viral check
                 if (streakRef.current >= VIRAL_STREAK && !viralTriggered.current) {
@@ -487,25 +495,39 @@ export default function CashCaliberEngine({ credits, onGameStart, onViralStreak,
         return () => cancelAnimationFrame(animRef.current);
     }, [gameLoop]);
 
-    /* ─── Ignition ─── */
+    /* ─── Start / Restart ─── */
+
+    const startPlaying = useCallback(() => {
+        phase.current = 'PLAYING';
+        scoreRef.current = 0;
+        streakRef.current = 0;
+        maxStreakRef.current = 0;
+        viralTriggered.current = false;
+        targetsRef.current = [];
+        particlesRef.current = [];
+        startTimeRef.current = Date.now();
+        lastSpawnRef.current = Date.now();
+        setDisplayScore(0);
+        setDisplayStreak(0);
+        setTimeLeft(30);
+        setGamePhase('PLAYING');
+    }, []);
 
     const handleIgnition = () => {
+        if (isDev) {
+            console.log('[DEV] Bypassing onGameStart — launching immediately');
+            startPlaying();
+            return;
+        }
+
         onGameStart((ok) => {
             if (!ok) return;
-            phase.current = 'PLAYING';
-            scoreRef.current = 0;
-            streakRef.current = 0;
-            maxStreakRef.current = 0;
-            viralTriggered.current = false;
-            targetsRef.current = [];
-            particlesRef.current = [];
-            startTimeRef.current = Date.now();
-            lastSpawnRef.current = Date.now();
-            setDisplayScore(0);
-            setDisplayStreak(0);
-            setTimeLeft(30);
-            setGamePhase('PLAYING');
+            startPlaying();
         });
+    };
+
+    const handleRedeploy = () => {
+        startPlaying();
     };
 
     /* ═══════════════════════════════════════════════════════════════════════════
@@ -533,7 +555,7 @@ export default function CashCaliberEngine({ credits, onGameStart, onViralStreak,
                             FIELD MODE
                         </h2>
                         <p className="font-mono text-[11px] text-cyan-400/60 uppercase tracking-[0.2em] mb-10">
-                            114 BPM &bull; 30s Round &bull; Geometric Targets
+                            114 BPM &bull; 30s Round &bull; Neon Diamonds
                         </p>
                         <button
                             onClick={handleIgnition}
@@ -573,14 +595,14 @@ export default function CashCaliberEngine({ credits, onGameStart, onViralStreak,
                             <div className="flex justify-between p-3">
                                 <span className="text-white/40 uppercase tracking-widest">Viral Bonus</span>
                                 <span className={viralTriggered.current ? 'text-green-400 font-bold' : 'text-white/30'}>
-                                    {viralTriggered.current ? '+25 CR' : '—'}
+                                    {viralTriggered.current ? '+25 CR' : '\u2014'}
                                 </span>
                             </div>
                         </div>
 
                         <div className="flex gap-4">
                             <button
-                                onClick={handleIgnition}
+                                onClick={handleRedeploy}
                                 className="px-8 py-3 font-mono font-bold text-xs tracking-[0.25em] uppercase border border-cyan-500 text-cyan-400 bg-black hover:bg-cyan-500 hover:text-black transition-all"
                                 style={{ cursor: 'pointer' }}
                             >
@@ -614,7 +636,7 @@ export default function CashCaliberEngine({ credits, onGameStart, onViralStreak,
                     className="font-mono text-[10px] text-white/30 uppercase tracking-[0.2em] hover:text-white/70 transition-colors mt-2"
                     style={{ cursor: 'pointer' }}
                 >
-                    ← Return to Arcade Hub
+                    &larr; Return to Arcade Hub
                 </button>
             )}
         </div>

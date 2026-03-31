@@ -3,12 +3,13 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
-import { doc, runTransaction } from 'firebase/firestore';
+import { doc, runTransaction, setDoc, serverTimestamp, updateDoc, increment } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import VaultRainModule from '@/components/VaultRainModule';
 import VaultDialModule from '@/components/VaultDialModule';
 import CashCaliberEngine from '@/components/CashCaliberEngine';
 
+const isDev = process.env.NODE_ENV === 'development';
 type GameMode = 'LOBBY' | 'DIAGNOSTIC' | 'VAULT_RAIN' | 'VAULT_DIAL' | 'CASH_CALIBER' | 'GAME_OVER';
 
 export default function ArcadePage() {
@@ -26,17 +27,21 @@ export default function ArcadePage() {
         console.log("[ARCADE IGNITION]: Preflight triggered.");
 
         if (!firebaseUser) {
-            const msg = "NO AUTH: Firebase user is null. Are you signed in?";
-            console.error(`[IGNITION FAIL]: ${msg}`);
-            setErrorMsg(msg);
-            window.alert(`[IGNITION ERROR]: ${msg}`);
+            if (isDev) {
+                console.warn('[DEV] No firebaseUser — bypassing auth check with mockUID dev-user-001');
+                return true;
+            }
+            console.error('[IGNITION FAIL]: NO AUTH: Firebase user is null.');
+            setErrorMsg('NO AUTH: Firebase user is null. Are you signed in?');
             return false;
         }
         if (!userDoc) {
-            const msg = "NO USER DOC: Firestore document is null. Profile may not exist.";
-            console.error(`[IGNITION FAIL]: ${msg}`);
-            setErrorMsg(msg);
-            window.alert(`[IGNITION ERROR]: ${msg}`);
+            if (isDev) {
+                console.warn('[DEV] No userDoc — bypassing Firestore check');
+                return true;
+            }
+            console.error('[IGNITION FAIL]: NO USER DOC: Firestore document is null.');
+            setErrorMsg('NO USER DOC: Firestore document is null. Profile may not exist.');
             return false;
         }
         if (gameState === 'DIAGNOSTIC') {
@@ -44,6 +49,10 @@ export default function ArcadePage() {
             return false;
         }
         if ((userDoc.credits ?? 0) < minCredits) {
+            if (isDev) {
+                console.warn(`[DEV] Insufficient credits (${userDoc.credits ?? 0} < ${minCredits}) — bypassing`);
+                return true;
+            }
             setErrorMsg(`INSUFFICIENT FUNDS: NEED ${minCredits} CR — ASCEND OR REFILL LEDGER`);
             setGameState('LOBBY');
             return false;
@@ -76,14 +85,31 @@ export default function ArcadePage() {
     /** HOOK 1: The Ante — Deduct 10 CR via atomic runTransaction */
     const handleGameStart = (startCallback: (success: boolean) => void) => {
         if (!firebaseUser || !userDoc) {
+            if (isDev) {
+                console.warn('[DEV] No auth — skipping Firestore credit deduction, starting game directly');
+                startCallback(true);
+                return;
+            }
             startCallback(false);
             return;
         }
 
-        const userRef = doc(db, 'users', firebaseUser.uid);
+        const uid = firebaseUser.uid;
+        if (isDev && uid.startsWith('dev-user')) {
+            console.log('[DEV] mockUID detected — bypassing Firestore transaction');
+            startCallback(true);
+            return;
+        }
+
+        const userRef = doc(db, 'users', uid);
         runTransaction(db, async (transaction) => {
             const docSnap = await transaction.get(userRef);
-            if (!docSnap.exists()) throw new Error("User document does not exist in Firestore");
+            if (!docSnap.exists()) {
+                // Auto-provision new player profile
+                await setDoc(userRef, { credits: 50, xp: 0, joinedAt: serverTimestamp() });
+                console.log("[TRANSACTION]: New player profile created with 50 CR.");
+                return; // skip deduction on first game — they start with 50
+            }
             const currentCredits = docSnap.data().credits || 0;
             if (currentCredits < 10) throw new Error("Insufficient credits (race condition)");
             transaction.update(userRef, { credits: currentCredits - 10 });
@@ -124,25 +150,20 @@ export default function ArcadePage() {
         }).catch((err) => console.error("[VIRAL STREAK TRANSACTION FAIL]:", err));
     };
 
-    /** HOOK 3: Game Over — E = log10(XP_total + 1) × 20, push to dashboard telemetry */
-    const handleGameOver = (data: { score: number; xp: number; engagement: string; viralReached: boolean }) => {
+    /** HOOK 3: Game Over — single atomic increment for XP + credit bonus */
+    const handleGameOver = (data: { score: number; xp: number; engagement: string; viralReached: boolean; creditBonus: number }) => {
         if (!firebaseUser) return;
 
         const userRef = doc(db, 'users', firebaseUser.uid);
-        runTransaction(db, async (transaction) => {
-            const docSnap = await transaction.get(userRef);
-            if (!docSnap.exists()) return;
-            const docData = docSnap.data();
-            const curXp = docData.xp?.total || 0;
-
-            const newXp = curXp + data.xp;
-            const eScore = Math.floor(Math.log10(newXp + 1) * 20);
-
-            transaction.update(userRef, {
-                'xp.total': newXp,
-                engagementScore: eScore,
-            });
-        }).catch((err) => console.error("[GAME OVER TRANSACTION FAIL]:", err));
+        const updates: Record<string, any> = {
+            'xp.total': increment(data.xp),
+        };
+        if (data.creditBonus > 0) {
+            updates.credits = increment(data.creditBonus);
+        }
+        updateDoc(userRef, updates)
+            .then(() => console.log(`[GAME OVER]: Saved — XP:+${data.xp}, CR:+${data.creditBonus}`))
+            .catch((err) => console.error("[GAME OVER WRITE FAIL]:", err));
     };
 
     /* ═══════════════════════════════════════════════════════════════════════
