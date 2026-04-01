@@ -6,36 +6,57 @@ interface ProxyReferralProps {
 }
 
 export default function ProxyReferral({ fanId = "GUEST-001" }: ProxyReferralProps) {
-  const [copied, setCopied] = useState(false);
+  const [status, setStatus] = useState<'IDLE' | 'COPIED' | 'SHARED'>('IDLE');
 
-  const handleCopy = () => {
-    // Generates a unique tracking link for the user
-    const referralLink = `https://savehxpe.com/arcade?proxy=${fanId}`;
-    navigator.clipboard.writeText(referralLink);
-    setCopied(true);
+  const referralLink = `https://savehxpe.com/arcade?proxy=${fanId}`;
+  const shareMessage = "Beat my score on Cash Caliber. Sign up now to get 50 free credits.";
 
-    // Reset button state after 3 seconds
-    setTimeout(() => setCopied(false), 3000);
+  const handleShare = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: 'Cash Caliber',
+          text: shareMessage,
+          url: referralLink,
+        });
+        setStatus('SHARED');
+      } catch {
+        // Fallback to copy if the user cancels or the share fails
+        copyToClipboard();
+      }
+    } else {
+      // Fallback for desktop browsers without share API
+      copyToClipboard();
+    }
+
+    // Reset button state
+    setTimeout(() => setStatus('IDLE'), 3000);
+  };
+
+  const copyToClipboard = () => {
+    navigator.clipboard.writeText(`${shareMessage} ${referralLink}`);
+    setStatus('COPIED');
   };
 
   return (
-    <div className="mt-6 border-l-2 border-cyan-500 bg-[#001a1a]/50 p-4">
-      <h4 className="text-cyan-400 font-mono text-xs font-bold mb-2 tracking-widest">
-        SYSTEM UPGRADE REQUIRED?
+    <div className="flex flex-col items-center justify-center p-8 border border-gray-800 bg-black text-center w-full my-6">
+      <h4 className="text-white font-mono text-sm font-bold mb-3 uppercase tracking-widest">
+        Refer a Player
       </h4>
-      <p className="text-gray-400 font-mono text-[11px] leading-relaxed mb-4">
-        Low on credits? Invite a Proxy. If your recruit beats a 10x streak in the Cash Caliber engine, your account receives an instant <span className="text-cyan-300">+50 CR Viral Bonus</span>.
+
+      <p className="text-gray-400 font-mono text-xs leading-relaxed mb-6 max-w-xs">
+        Invite players to earn credits. If your referral reaches a 10x streak, your account receives a 50 CR bonus.
       </p>
 
       <button
-        onClick={handleCopy}
-        className={`w-full py-3 font-mono text-xs tracking-widest border transition-all duration-300 ${
-          copied
-            ? 'bg-green-900/40 border-green-500 text-green-400 shadow-[0_0_10px_rgba(0,255,0,0.2)]'
-            : 'bg-black border-cyan-500 text-cyan-400 hover:bg-cyan-500/10'
+        onClick={handleShare}
+        className={`w-full max-w-xs py-3 font-mono text-xs uppercase tracking-widest border transition-all duration-300 ${
+          status !== 'IDLE'
+            ? 'bg-white text-black border-white shadow-[0_0_15px_rgba(255,255,255,0.8)]'
+            : 'bg-black text-white border-gray-500 animate-pulse hover:border-white shadow-[0_0_10px_rgba(255,255,255,0.2)]'
         }`}
       >
-        {copied ? '[ LINK ENCRYPTED & COPIED ]' : '[ INVITE A PROXY: +50 CR ]'}
+        {status === 'COPIED' ? 'Copied to Clipboard' : status === 'SHARED' ? 'Link Shared' : 'Share Link'}
       </button>
     </div>
   );
