@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { doc, runTransaction, arrayUnion, updateDoc } from 'firebase/firestore';
@@ -17,12 +17,35 @@ export default function Dashboard() {
     const { userDoc, firebaseUser, logout } = useAuth();
     const { systemStatus } = useSystemStatus();
 
+    // Ascension Rank
+    const xpTotal = userDoc?.xp?.total ?? 0;
+    const ascensionRank = xpTotal > 2000 ? 'ARCHITECT' : xpTotal > 500 ? 'OPERATIVE' : 'PROXY';
+
     // Alchemist State
     const [promptInput, setPromptInput] = useState('');
     const [generatedPrompt, setGeneratedPrompt] = useState<string | null>(null);
     const [isGenerating, setIsGenerating] = useState(false);
     const [justDeducted, setJustDeducted] = useState(false);
     const [showAscensionToast, setShowAscensionToast] = useState(false);
+    const [inviteStatus, setInviteStatus] = useState<'IDLE' | 'COPIED'>('IDLE');
+
+    const handleBottomInvite = useCallback(async () => {
+        const fanId = userDoc?.name || firebaseUser?.uid || 'GUEST-001';
+        const referralLink = `https://savehxpe.com/arcade?proxy=${fanId}`;
+        const shareMessage = 'Beat my score on Cash Caliber. Sign up now to get 50 free credits.';
+
+        if (navigator.share) {
+            try {
+                await navigator.share({ title: 'Cash Caliber', text: shareMessage, url: referralLink });
+            } catch {
+                // User cancelled — fall through to clipboard
+            }
+        }
+        const payload = `Beat my score at Cash Caliber. Sign up today to claim your starting 50 CR bonus and unlock exclusive SaveHxpe releases: ${referralLink}`;
+        navigator.clipboard.writeText(payload);
+        setInviteStatus('COPIED');
+        setTimeout(() => setInviteStatus('IDLE'), 2000);
+    }, [userDoc?.name, firebaseUser?.uid]);
 
     useEffect(() => {
         if (userDoc?.ascensionVerifiedToast && firebaseUser) {
@@ -156,7 +179,7 @@ DARK INDUSTRIAL PHONK X FREDDIE GIBBS FLOW. 150 BPM. DISTORTED 808s, GLITCHED HI
                 </div>
 
                 <div className="layout-container flex h-full grow flex-col md:flex-row relative z-10">
-                    <aside className="w-full md:w-72 border-b md:border-b-0 md:border-r border-white/10 bg-black/80 backdrop-blur-md flex flex-col shrink-0">
+                    <aside className="hidden md:flex w-72 md:border-r border-white/10 bg-black/80 backdrop-blur-md flex-col shrink-0">
                         <div className="flex items-center gap-4 px-6 py-6 border-b border-white/10">
                             <div className="size-6 text-primary">
                                 <span className="material-symbols-outlined text-2xl leading-none">graphic_eq</span>
@@ -200,6 +223,22 @@ DARK INDUSTRIAL PHONK X FREDDIE GIBBS FLOW. 150 BPM. DISTORTED 808s, GLITCHED HI
                                         {(Math.log10((userDoc?.xp?.total ?? 500) + 1) * 20).toFixed(1)}
                                     </span>
                                 </div>
+                            </div>
+
+                            {/* Ascension Rank */}
+                            <div className="flex flex-col gap-1 p-3 bg-white/5 border border-white/10 rounded">
+                                <span className="text-[10px] text-slate-500 uppercase tracking-[0.2em] font-bold">Ascension Rank</span>
+                                <div className="flex items-center gap-2">
+                                    <span className="material-symbols-outlined text-sm text-white/70">
+                                        {ascensionRank === 'ARCHITECT' ? 'military_tech' : ascensionRank === 'OPERATIVE' ? 'shield' : 'person'}
+                                    </span>
+                                    <span className="text-sm font-bold font-mono tracking-[0.15em] text-white uppercase">{ascensionRank}</span>
+                                </div>
+                                {ascensionRank !== 'ARCHITECT' && (
+                                    <span className="text-[9px] text-slate-500 font-mono tracking-wider mt-1">
+                                        {ascensionRank === 'PROXY' ? `${501 - xpTotal} XP to OPERATIVE` : `${2001 - xpTotal} XP to ARCHITECT`}
+                                    </span>
+                                )}
                             </div>
 
                             {/* Viral Loop — Proxy Referral */}
@@ -371,11 +410,37 @@ DARK INDUSTRIAL PHONK X FREDDIE GIBBS FLOW. 150 BPM. DISTORTED 808s, GLITCHED HI
                                 </div>
                             </section>
                         </div>
-                        <footer className="relative z-10 flex flex-col gap-6 px-10 py-8 text-center border-t border-white/5 bg-black/40 backdrop-blur-sm">
+                        <footer className="relative z-10 flex flex-col gap-6 px-10 py-8 text-center border-t border-white/5 bg-black/40 backdrop-blur-sm mb-14 md:mb-0">
                             <p className="text-slate-500 text-[10px] font-normal leading-normal uppercase tracking-[0.4em]">© 2026 OUTWORLD LLC.</p>
                         </footer>
                     </main>
                 </div>
+
+                {/* ═══ Mobile Bottom Navigation Bar ═══ */}
+                <nav className="fixed bottom-0 inset-x-0 z-[999] flex md:hidden items-center justify-around bg-black border-t border-cyan-500 py-3 px-2">
+                    <div className="flex flex-col items-center gap-0.5">
+                        <span className="material-symbols-outlined text-lg text-green-500">database</span>
+                        <span className="text-[10px] font-mono font-bold text-white uppercase tracking-widest">
+                            {userDoc?.credits ?? 20} CR
+                        </span>
+                    </div>
+                    <button
+                        onClick={() => router.push('/vault')}
+                        className="flex flex-col items-center gap-0.5"
+                    >
+                        <span className="material-symbols-outlined text-lg text-cyan-400">lock_open</span>
+                        <span className="text-[10px] font-mono font-bold text-white uppercase tracking-widest">Assets</span>
+                    </button>
+                    <button
+                        onClick={handleBottomInvite}
+                        className="flex flex-col items-center gap-0.5"
+                    >
+                        <span className="material-symbols-outlined text-lg text-white/70">share</span>
+                        <span className="text-[10px] font-mono font-bold text-white uppercase tracking-widest">
+                            {inviteStatus === 'COPIED' ? 'Copied!' : 'Invite'}
+                        </span>
+                    </button>
+                </nav>
             </div>
             {/* Base flicker/typing keyframes */}
             <style jsx global>{`

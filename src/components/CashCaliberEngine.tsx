@@ -48,7 +48,12 @@ const BEAT_MS = 60000 / BPM;
 const SPAWN_INTERVAL = BEAT_MS * 2;
 const TARGET_LIFETIME = 2200;
 const GAME_DURATION = 30000;
-const VIRAL_STREAK = 20;
+const STREAK_TIERS = [
+    { streak: 10, credits: 10, label: '10x' },
+    { streak: 20, credits: 25, label: '20x' },
+    { streak: 30, credits: 50, label: '30x' },
+    { streak: 50, credits: 150, label: '50x MAX' },
+] as const;
 const GRID_SPACING = 48;
 const CROSSHAIR_COLOR = '#00FFFF';
 const BPM_ANGULAR_FREQ = (BPM / 60) * Math.PI * 2;
@@ -73,7 +78,8 @@ export default function CashCaliberEngine({ credits, onGameStart, onViralStreak,
     const mouseRef = useRef({ x: 0, y: 0 });
     const gridOffsetRef = useRef(0);
     const shakeRef = useRef({ x: 0, y: 0, decay: 0 });
-    const viralTriggered = useRef(false);
+    const claimedTiersRef = useRef<Set<number>>(new Set());
+    const creditBonusRef = useRef(0);
     const nextTargetId = useRef(0);
 
     const [displayScore, setDisplayScore] = useState(0);
@@ -269,6 +275,13 @@ export default function CashCaliberEngine({ credits, onGameStart, onViralStreak,
         });
     };
 
+    const getNextTier = () => {
+        for (const tier of STREAK_TIERS) {
+            if (!claimedTiersRef.current.has(tier.streak)) return tier;
+        }
+        return null;
+    };
+
     const drawHUD = (ctx: CanvasRenderingContext2D, w: number) => {
         ctx.save();
         ctx.shadowBlur = 0;
@@ -277,13 +290,29 @@ export default function CashCaliberEngine({ credits, onGameStart, onViralStreak,
         ctx.textAlign = 'left';
         ctx.fillText(`SCORE: ${scoreRef.current}`, 16, 28);
         ctx.fillText(`STREAK: ${streakRef.current}x`, 16, 46);
+
+        // Next tier indicator
+        const next = getNextTier();
+        if (next) {
+            ctx.fillStyle = 'rgba(255,255,255,0.45)';
+            ctx.fillText(`NEXT BONUS: ${next.streak}x STREAK (+${next.credits} CR)`, 16, 64);
+        } else {
+            ctx.fillStyle = 'rgba(0,255,100,0.6)';
+            ctx.fillText('ALL TIERS CLAIMED', 16, 64);
+        }
+
+        ctx.fillStyle = 'rgba(0,255,255,0.7)';
         ctx.textAlign = 'right';
         ctx.fillText(`CREDITS: ${displayCredits} CR`, w - 16, 28);
         const elapsed = Date.now() - startTimeRef.current;
         const remaining = Math.max(0, Math.ceil((GAME_DURATION - elapsed) / 1000));
         ctx.fillText(`TIME: ${remaining}s`, w - 16, 46);
+        if (creditBonusRef.current > 0) {
+            ctx.fillStyle = 'rgba(0,255,100,0.7)';
+            ctx.fillText(`BONUS: +${creditBonusRef.current} CR`, w - 16, 64);
+        }
         ctx.fillStyle = 'rgba(0,255,255,0.15)';
-        ctx.fillRect(0, 0, w, 56);
+        ctx.fillRect(0, 0, w, 72);
         ctx.restore();
     };
 
@@ -382,8 +411,8 @@ export default function CashCaliberEngine({ credits, onGameStart, onViralStreak,
                     score: scoreRef.current,
                     xp: Math.floor(scoreRef.current * 1.5),
                     engagement: 'FIELD_MODE',
-                    viralReached: viralTriggered.current,
-                    creditBonus: viralTriggered.current ? 25 : 0,
+                    viralReached: claimedTiersRef.current.size > 0,
+                    creditBonus: creditBonusRef.current,
                 });
             }
         }
@@ -448,16 +477,23 @@ export default function CashCaliberEngine({ credits, onGameStart, onViralStreak,
                 hitMade = true;
                 scoreRef.current += 10;
                 streakRef.current += 1;
+                if (typeof navigator !== 'undefined' && navigator.vibrate) { navigator.vibrate(50); }
                 if (streakRef.current > maxStreakRef.current) maxStreakRef.current = streakRef.current;
 
                 // Score popup: CRITICAL at 5+ streak, +10 otherwise
                 const popupText = streakRef.current >= 5 ? 'CRITICAL' : '+10';
                 spawnParticles(t.x, t.y, 14, popupText);
 
-                // Viral check
-                if (streakRef.current >= VIRAL_STREAK && !viralTriggered.current) {
-                    viralTriggered.current = true;
-                    onViralStreak({ credits: 25, xp: 200 });
+                // Tiered streak rewards
+                for (const tier of STREAK_TIERS) {
+                    if (streakRef.current >= tier.streak && !claimedTiersRef.current.has(tier.streak)) {
+                        claimedTiersRef.current.add(tier.streak);
+                        creditBonusRef.current += tier.credits;
+                        onViralStreak({ credits: tier.credits, xp: tier.credits * 4 });
+                        // Bonus popup
+                        spawnParticles(t.x, t.y - 30, 8, `+${tier.credits} CR`);
+                        triggerShake(8);
+                    }
                 }
                 break;
             }
@@ -502,7 +538,8 @@ export default function CashCaliberEngine({ credits, onGameStart, onViralStreak,
         scoreRef.current = 0;
         streakRef.current = 0;
         maxStreakRef.current = 0;
-        viralTriggered.current = false;
+        claimedTiersRef.current = new Set();
+        creditBonusRef.current = 0;
         targetsRef.current = [];
         particlesRef.current = [];
         startTimeRef.current = Date.now();
@@ -535,7 +572,7 @@ export default function CashCaliberEngine({ credits, onGameStart, onViralStreak,
        ═══════════════════════════════════════════════════════════════════════════ */
 
     return (
-        <div ref={containerRef} className="w-full max-w-4xl mx-auto flex flex-col items-center gap-6 relative" style={{ cursor: 'none' }}>
+        <div ref={containerRef} className="game-viewport w-full max-w-4xl mx-auto flex flex-col items-center gap-6 relative" style={{ cursor: 'none' }}>
 
             {/* ── Canvas ── */}
             <div className="relative w-full aspect-[16/10] border border-cyan-900/60 overflow-hidden bg-black shadow-[0_0_60px_rgba(0,255,255,0.06)]">
@@ -565,7 +602,7 @@ export default function CashCaliberEngine({ credits, onGameStart, onViralStreak,
                             INITIATE SEQUENCE
                         </button>
                         <p className="font-mono text-[10px] text-white/30 mt-6 uppercase tracking-[0.15em]">
-                            Ante: 10 CR &bull; Jackpot at {VIRAL_STREAK} Streak
+                            Ante: 10 CR &bull; Streak Bonuses at 10x / 20x / 30x / 50x
                         </p>
                     </div>
                 )}
@@ -593,9 +630,9 @@ export default function CashCaliberEngine({ credits, onGameStart, onViralStreak,
                                 <span className="text-cyan-400 font-bold">{maxStreakRef.current}x</span>
                             </div>
                             <div className="flex justify-between p-3">
-                                <span className="text-white/40 uppercase tracking-widest">Viral Bonus</span>
-                                <span className={viralTriggered.current ? 'text-green-400 font-bold' : 'text-white/30'}>
-                                    {viralTriggered.current ? '+25 CR' : '\u2014'}
+                                <span className="text-white/40 uppercase tracking-widest">Streak Bonus</span>
+                                <span className={creditBonusRef.current > 0 ? 'text-green-400 font-bold' : 'text-white/30'}>
+                                    {creditBonusRef.current > 0 ? `+${creditBonusRef.current} CR` : '\u2014'}
                                 </span>
                             </div>
                         </div>

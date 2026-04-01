@@ -9,9 +9,10 @@ import VaultRainModule from '@/components/VaultRainModule';
 import VaultDialModule from '@/components/VaultDialModule';
 import CashCaliberEngine from '@/components/CashCaliberEngine';
 import VoidRoulette from '@/components/VoidRoulette';
+import VoidCrate from '@/components/VoidCrate';
 
 const isDev = process.env.NODE_ENV === 'development';
-type GameMode = 'LOBBY' | 'DIAGNOSTIC' | 'VAULT_RAIN' | 'VAULT_DIAL' | 'CASH_CALIBER' | 'VOID_ROULETTE' | 'GAME_OVER';
+type GameMode = 'LOBBY' | 'DIAGNOSTIC' | 'VAULT_RAIN' | 'VAULT_DIAL' | 'CASH_CALIBER' | 'VOID_ROULETTE' | 'VOID_CRATE' | 'GAME_OVER';
 
 export default function ArcadePage() {
     const router = useRouter();
@@ -82,6 +83,12 @@ export default function ArcadePage() {
     const handlePlayVoidRoulette = () => {
         if (!runPreflight(15)) return;
         setGameState('VOID_ROULETTE');
+        setErrorMsg(null);
+    };
+
+    const handlePlayVoidCrate = () => {
+        if (!runPreflight(20)) return;
+        setGameState('VOID_CRATE');
         setErrorMsg(null);
     };
 
@@ -311,10 +318,61 @@ export default function ArcadePage() {
     };
 
     /* ═══════════════════════════════════════════════════════════════════════
+       FIREBASE TRANSACTION HOOKS — VOID CRATE
+       ═══════════════════════════════════════════════════════════════════════ */
+
+    /** CRATE HOOK 1: Ante — Deduct 20 CR */
+    const handleCrateOpen = (startCallback: (success: boolean) => void) => {
+        if (!firebaseUser || !userDoc) {
+            if (isDev) {
+                console.warn('[DEV] No auth — skipping Void Crate ante');
+                startCallback(true);
+                return;
+            }
+            startCallback(false);
+            return;
+        }
+
+        const userRef = doc(db, 'users', firebaseUser.uid);
+        runTransaction(db, async (transaction) => {
+            const docSnap = await transaction.get(userRef);
+            if (!docSnap.exists()) throw new Error("User document does not exist");
+            const currentCredits = docSnap.data().credits || 0;
+            if (currentCredits < 20) throw new Error("Insufficient credits for Void Crate");
+            transaction.update(userRef, { credits: currentCredits - 20 });
+        })
+            .then(() => {
+                console.log("[CRATE TRANSACTION]: 20 CR ante deducted.");
+                startCallback(true);
+            })
+            .catch((err) => {
+                console.error("[CRATE TRANSACTION FAIL]:", err);
+                setErrorMsg(err instanceof Error ? err.message : String(err));
+                startCallback(false);
+            });
+    };
+
+    /** CRATE HOOK 2: Payout — credits, XP, or stem unlock */
+    const handleCratePayout = (data: { credits: number; xp: number; stem?: boolean }) => {
+        if (!firebaseUser) return;
+        if (data.credits === 0 && data.xp === 0 && !data.stem) return;
+
+        const userRef = doc(db, 'users', firebaseUser.uid);
+        const updates: Record<string, any> = {};
+        if (data.credits > 0) updates.credits = increment(data.credits);
+        if (data.xp > 0) updates['xp.total'] = increment(data.xp);
+        if (data.stem) updates.unlocked_assets = arrayUnion('VOID_CRATE_STEM');
+
+        updateDoc(userRef, updates)
+            .then(() => console.log(`[CRATE PAYOUT]: CR:+${data.credits}, XP:+${data.xp}, STEM:${data.stem ?? false}`))
+            .catch((err) => console.error("[CRATE PAYOUT FAIL]:", err));
+    };
+
+    /* ═══════════════════════════════════════════════════════════════════════
        RENDER
        ═══════════════════════════════════════════════════════════════════════ */
 
-    const isPlaying = gameState === 'VAULT_RAIN' || gameState === 'VAULT_DIAL' || gameState === 'CASH_CALIBER' || gameState === 'VOID_ROULETTE';
+    const isPlaying = gameState === 'VAULT_RAIN' || gameState === 'VAULT_DIAL' || gameState === 'CASH_CALIBER' || gameState === 'VOID_ROULETTE' || gameState === 'VOID_CRATE';
 
     return (
         <div className="bg-black text-white font-display min-h-screen flex flex-col overflow-x-hidden selection:bg-white selection:text-black">
@@ -349,7 +407,7 @@ export default function ArcadePage() {
                         </div>
 
                         {/* ── 3-COLUMN CARD GRID ── */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
 
                             {/* ─── CARD 1: VAULT RAIN (ACTIVE) ─── */}
                             <div className="border border-cyan-500/50 bg-black p-6 flex flex-col relative group overflow-hidden transition-all hover:border-cyan-400 hover:shadow-[0_0_30px_rgba(0,255,255,0.12)]">
@@ -508,6 +566,48 @@ export default function ArcadePage() {
                                 </button>
                             </div>
 
+                            {/* ─── CARD 5: VOID CRATE (ACTIVE) ─── */}
+                            <div className="border border-white/20 bg-black p-6 flex flex-col relative group overflow-hidden transition-all hover:border-white/50 hover:shadow-[0_0_30px_rgba(255,255,255,0.06)]">
+                                <div className="absolute inset-0 bg-white opacity-0 group-hover:opacity-[0.02] transition-opacity" />
+
+                                <div className="absolute top-0 right-0 bg-white/10 text-white/60 text-[8px] font-mono font-black tracking-[0.3em] uppercase px-3 py-1 z-10">
+                                    NEW
+                                </div>
+
+                                <h3 className="font-mono text-xl lg:text-2xl font-black tracking-[0.2em] uppercase mb-1 relative z-10 text-white">
+                                    Void Crate
+                                </h3>
+                                <p className="font-mono text-[11px] text-white/40 uppercase tracking-[0.15em] mb-8 relative z-10">
+                                    Loot Box RNG [SINGLE OPEN]
+                                </p>
+
+                                <div className="mt-auto space-y-3 relative z-10">
+                                    <div className="flex justify-between items-baseline font-mono text-xs border-b border-white/10 pb-2">
+                                        <span className="text-white/50 uppercase tracking-[0.15em]">Cost:</span>
+                                        <span className="text-white font-bold tracking-wider">20 CR</span>
+                                    </div>
+                                    <div className="flex justify-between items-baseline font-mono text-xs border-b border-white/10 pb-2">
+                                        <span className="text-white/40 uppercase tracking-[0.1em]">Common (70%):</span>
+                                        <span className="text-white font-bold tracking-wider">500 XP</span>
+                                    </div>
+                                    <div className="flex justify-between items-baseline font-mono text-xs border-b border-white/10 pb-2">
+                                        <span className="text-white/40 uppercase tracking-[0.1em]">Rare (10%):</span>
+                                        <span className="text-white font-bold tracking-wider text-[11px]">Audio Stem</span>
+                                    </div>
+                                </div>
+
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); handlePlayVoidCrate(); }}
+                                    disabled={gameState === 'DIAGNOSTIC'}
+                                    className={`mt-8 w-full py-4 font-mono font-bold text-sm tracking-[0.25em] uppercase transition-all relative z-10 ${gameState === 'DIAGNOSTIC'
+                                        ? 'bg-white/20 text-white/50 cursor-not-allowed'
+                                        : 'bg-black text-white border border-white/20 hover:bg-white hover:text-black hover:border-white'
+                                        }`}
+                                >
+                                    {gameState === 'DIAGNOSTIC' ? 'Verifying Ledger...' : 'Open Crate'}
+                                </button>
+                            </div>
+
                         </div>
                     </div>
                 )}
@@ -550,6 +650,16 @@ export default function ArcadePage() {
                         credits={userDoc?.credits ?? 0}
                         onSpinStart={handleVoidSpinStart}
                         onPayout={handleVoidPayout}
+                        onExit={() => setGameState('LOBBY')}
+                    />
+                )}
+
+                {/* ═══ VOID CRATE ENGINE ═══ */}
+                {gameState === 'VOID_CRATE' && (
+                    <VoidCrate
+                        credits={userDoc?.credits ?? 0}
+                        onOpen={handleCrateOpen}
+                        onPayout={handleCratePayout}
                         onExit={() => setGameState('LOBBY')}
                     />
                 )}

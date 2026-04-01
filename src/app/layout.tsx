@@ -4,6 +4,7 @@ import './globals.css';
 import { AuthProvider } from '@/hooks/useAuth';
 import CursorWrapper from '@/components/CursorWrapper';
 import CitizenOnboarding from '@/components/CitizenOnboarding';
+import GlobalTicker from '@/components/GlobalTicker';
 
 const spaceGrotesk = Space_Grotesk({
   subsets: ['latin'],
@@ -29,6 +30,8 @@ export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
+  userScalable: false,
+  viewportFit: 'cover',
   themeColor: '#000000',
 };
 
@@ -48,6 +51,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           {children}
           <CitizenOnboarding />
         </AuthProvider>
+        <GlobalTicker />
       </body>
     </html>
   );

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // VAULT RAIN ENGINE — High Speed Catcher (16-bit Canvas w/ Phosphor Trails)
@@ -130,15 +130,23 @@ class VaultRainEngine {
 
     init() {
         this.canvas.addEventListener('mousemove', this.boundHandleInput);
-        this.canvas.addEventListener('touchmove', (e: TouchEvent) => {
-            e.preventDefault();
-            if (e.touches.length > 0) {
-                this.updateTargetX(e.touches[0].clientX);
-            }
-        }, { passive: false });
 
         this.ctx.fillStyle = '#050505';
         this.ctx.fillRect(0, 0, this.width, this.height);
+    }
+
+    /** Shift the proxy left by a fixed step (thumb-zone tap) */
+    moveLeft() {
+        if (this.state !== 'PLAYING') return;
+        const step = this.width * 0.12;
+        this.targetX = Math.max(this.briefcase.width / 2, this.targetX - step);
+    }
+
+    /** Shift the proxy right by a fixed step (thumb-zone tap) */
+    moveRight() {
+        if (this.state !== 'PLAYING') return;
+        const step = this.width * 0.12;
+        this.targetX = Math.min(this.width - this.briefcase.width / 2, this.targetX + step);
     }
 
     destroy() {
@@ -319,6 +327,7 @@ class VaultRainEngine {
                     item.active = false;
 
                     if (item.type === 'GLITCH') {
+                        if (typeof navigator !== 'undefined' && navigator.vibrate) { navigator.vibrate([100, 50, 100]); }
                         this.streak = 0;
                         this.score = Math.max(0, this.score - 150);
                         this.screenShake = 25;
@@ -586,6 +595,26 @@ export default function VaultRainModule({
     const gameOverScreenRef = useRef<HTMLDivElement>(null);
     const finalScoreRef = useRef<HTMLDivElement>(null);
 
+    // Edge glow feedback: 'left' | 'right' | null
+    const [edgeGlow, setEdgeGlow] = useState<'left' | 'right' | null>(null);
+    const glowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const triggerEdgeGlow = useCallback((side: 'left' | 'right') => {
+        if (glowTimerRef.current) clearTimeout(glowTimerRef.current);
+        setEdgeGlow(side);
+        glowTimerRef.current = setTimeout(() => setEdgeGlow(null), 100);
+    }, []);
+
+    const handleThumbLeft = useCallback(() => {
+        engineRef.current?.moveLeft();
+        triggerEdgeGlow('left');
+    }, [triggerEdgeGlow]);
+
+    const handleThumbRight = useCallback(() => {
+        engineRef.current?.moveRight();
+        triggerEdgeGlow('right');
+    }, [triggerEdgeGlow]);
+
     // Initialize the engine once on mount
     useEffect(() => {
         if (!canvasRef.current) return;
@@ -663,7 +692,7 @@ export default function VaultRainModule({
     }, []);
 
     return (
-        <div className="relative w-full max-w-[1280px] mx-auto" style={{ aspectRatio: '16 / 9' }}>
+        <div className="game-viewport relative w-full max-w-[1280px] mx-auto" style={{ aspectRatio: '16 / 9' }}>
             {/* ═══ Game Wrapper ═══ */}
             <div
                 className="relative w-full h-full overflow-hidden rounded-lg"
@@ -815,6 +844,36 @@ export default function VaultRainModule({
                     </div>
                 </div>
             </div>
+
+            {/* ═══ Thumb Zone Overlays (mobile tap controls) ═══ */}
+            <div
+                className="absolute bottom-0 left-0 w-1/2 h-1/2 z-20"
+                onTouchStart={(e) => { e.preventDefault(); handleThumbLeft(); }}
+                style={{ WebkitTapHighlightColor: 'transparent' }}
+            />
+            <div
+                className="absolute bottom-0 right-0 w-1/2 h-1/2 z-20"
+                onTouchStart={(e) => { e.preventDefault(); handleThumbRight(); }}
+                style={{ WebkitTapHighlightColor: 'transparent' }}
+            />
+
+            {/* ═══ Edge Glow Feedback ═══ */}
+            {edgeGlow === 'left' && (
+                <div
+                    className="absolute inset-0 z-30 pointer-events-none"
+                    style={{
+                        boxShadow: 'inset 6px 0 18px rgba(255,255,255,0.45)',
+                    }}
+                />
+            )}
+            {edgeGlow === 'right' && (
+                <div
+                    className="absolute inset-0 z-30 pointer-events-none"
+                    style={{
+                        boxShadow: 'inset -6px 0 18px rgba(255,255,255,0.45)',
+                    }}
+                />
+            )}
         </div>
     );
 }

@@ -34,7 +34,8 @@ export default function ProxyReferral({ fanId = "GUEST-001" }: ProxyReferralProp
   };
 
   const copyToClipboard = () => {
-    navigator.clipboard.writeText(`${shareMessage} ${referralLink}`);
+    const payload = `Beat my score at Cash Caliber. Sign up today to claim your starting 50 CR bonus and unlock exclusive SaveHxpe releases: ${referralLink}`;
+    navigator.clipboard.writeText(payload);
     setStatus('COPIED');
   };
 
@@ -52,7 +53,7 @@ export default function ProxyReferral({ fanId = "GUEST-001" }: ProxyReferralProp
         onClick={handleShare}
         className={`w-full max-w-xs py-3 font-mono text-xs uppercase tracking-widest border transition-all duration-300 ${
           status !== 'IDLE'
-            ? 'bg-white text-black border-white shadow-[0_0_15px_rgba(255,255,255,0.8)]'
+            ? 'bg-black text-gray-300 border-white shadow-[0_0_10px_rgba(255,255,255,0.3)]'
             : 'bg-black text-white border-gray-500 animate-pulse hover:border-white shadow-[0_0_10px_rgba(255,255,255,0.2)]'
         }`}
       >

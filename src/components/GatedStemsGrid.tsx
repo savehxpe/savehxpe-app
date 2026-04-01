@@ -12,6 +12,8 @@ export default function GatedStemsGrid() {
     const { systemStatus } = useSystemStatus();
 
     const isPremium = userDoc?.tier?.current === 'PREMIUM' || userDoc?.tier?.current === 'STANDARD' || !!userDoc?.unlocked_assets?.includes('VAULT_ACCESS');
+    const xpTotal = userDoc?.xp?.total ?? 0;
+    const isArchitect = xpTotal > 2000;
 
     const [systemMessage, setSystemMessage] = useState<{ type: 'error' | 'success', text: string } | null>(null);
     const [playingStem, setPlayingStem] = useState<string | null>(null);
@@ -203,6 +205,22 @@ export default function GatedStemsGrid() {
                         </div>
                     );
                 })}
+
+                {/* Architect-Gated Locked Item */}
+                <div className="group relative bg-white border border-black/30 p-4 flex flex-col gap-4 select-none" style={{ opacity: isArchitect ? 1 : 0.4, filter: isArchitect ? 'none' : 'grayscale(1)' }}>
+                    <div className="absolute top-2 right-2 z-10 bg-black/60 text-white px-2 py-1 font-mono text-[10px] uppercase">CLASSIFIED</div>
+                    <div className="aspect-video bg-gray-100 relative overflow-hidden flex items-center justify-center border border-black/10">
+                        <span className="material-symbols-outlined text-6xl text-black/10">folder_special</span>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                        <h4 className="font-bold text-xl uppercase leading-tight">CLASSIFIED ARCHIVE</h4>
+                        <p className="font-mono text-xs text-black/60 uppercase">UNRELEASED SESSION FILES</p>
+                    </div>
+                    <div className="mt-auto w-full border-2 border-black/30 h-12 font-bold uppercase tracking-widest flex items-center justify-center gap-2 text-black/50 cursor-not-allowed text-xs">
+                        <span className="material-symbols-outlined text-lg">lock</span>
+                        {isArchitect ? 'COMING SOON' : 'REQUIRES RANK: ARCHITECT'}
+                    </div>
+                </div>
             </div>
         </div>
     );

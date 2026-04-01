@@ -3,7 +3,10 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
+import { doc, updateDoc, increment } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
+import DailyBonus from '@/components/DailyBonus';
 
 function generateFanId(uid: string): string {
     const hash = uid.slice(0, 8).toUpperCase().replace(/[^A-Z0-9]/g, 'X');
@@ -42,6 +45,12 @@ export default function Sidebar() {
     };
 
     const tierBadge = getTierBadge();
+
+    const handleDailyClaim = useCallback((credits: number) => {
+        if (!firebaseUser) return;
+        const userRef = doc(db, 'users', firebaseUser.uid);
+        updateDoc(userRef, { credits: increment(credits) }).catch(console.error);
+    }, [firebaseUser]);
 
     return (
         <>
@@ -162,6 +171,9 @@ export default function Sidebar() {
                         </Link>
                     ))}
                 </nav>
+
+                {/* Daily Bonus */}
+                <DailyBonus onClaim={handleDailyClaim} />
 
                 {/* Tier Badge + Logout */}
                 <div style={{

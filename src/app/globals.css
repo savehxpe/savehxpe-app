@@ -8,6 +8,13 @@
   }
 }
 
+/* Game viewport — prevents scroll/zoom during gameplay */
+.game-viewport {
+  touch-action: none;
+  overscroll-behavior: none;
+  overflow: hidden;
+}
+
 /* Hard-coded Brutalist Styles */
 .locked-vault-blur {
   backdrop-filter: blur(12px);

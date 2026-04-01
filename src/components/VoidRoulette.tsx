@@ -201,7 +201,7 @@ export default function VoidRoulette({ credits, onSpinStart, onPayout, onExit }:
        ═══════════════════════════════════════════════════════════════════════════ */
 
     return (
-        <div className="w-full max-w-lg mx-auto flex flex-col items-center gap-8 font-mono select-none relative">
+        <div className="game-viewport w-full max-w-lg mx-auto flex flex-col items-center gap-8 font-mono select-none relative">
 
             {/* ── CRITICAL WIN popup ── */}
             {showCritical && (

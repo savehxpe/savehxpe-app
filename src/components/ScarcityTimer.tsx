@@ -2,46 +2,84 @@
 import { useState, useEffect } from 'react';
 
 export default function ScarcityTimer() {
-  // 48 hour countdown in seconds
-  const [timeLeft, setTimeLeft] = useState(48 * 60 * 60);
+  const targetDate = new Date('2026-04-20T00:00:00').getTime();
+
+  const calculateTimeLeft = () => {
+    const now = Date.now();
+    const diff = Math.max(0, Math.floor((targetDate - now) / 1000));
+    return diff;
+  };
+
+  const [timeLeft, setTimeLeft] = useState(calculateTimeLeft);
 
   useEffect(() => {
     const timer = setInterval(() => {
-      setTimeLeft((prev) => (prev > 0 ? prev - 1 : 0));
+      setTimeLeft(calculateTimeLeft());
     }, 1000);
     return () => clearInterval(timer);
   }, []);
 
   const formatTime = (seconds: number) => {
-    const h = Math.floor(seconds / 3600);
+    const d = Math.floor(seconds / 86400);
+    const h = Math.floor((seconds % 86400) / 3600);
     const m = Math.floor((seconds % 3600) / 60);
     const s = seconds % 60;
-    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    return { d, h, m, s };
   };
 
-  return (
-    <div className="relative border border-red-500/50 bg-black p-5 mb-8 shadow-[0_0_15px_rgba(255,0,0,0.15)] overflow-hidden">
-      {/* Background Glitch Line */}
-      <div className="absolute top-0 left-0 w-full h-[1px] bg-red-500/30 animate-pulse"></div>
+  const pad = (n: number) => n.toString().padStart(2, '0');
 
-      <div className="flex justify-between items-center mb-3">
-        <h3 className="text-red-500 font-mono font-bold tracking-widest text-xs md:text-sm">
-          [ ENCRYPTED ] HANDOUT REMIX STEMS
-        </h3>
-        <span className="text-red-400 font-mono text-xs animate-pulse bg-red-900/30 px-2 py-1">
-          WARNING
+  const isExpired = timeLeft === 0;
+  const { d, h, m, s } = formatTime(timeLeft);
+
+  if (isExpired) {
+    return (
+      <div className="border border-white/20 bg-black p-10 mb-8 flex flex-col items-center justify-center">
+        <span className="font-mono text-xs tracking-[0.3em] text-white/50 mb-4">
+          [ UPCOMING RELEASE ]
+        </span>
+        <span className="font-mono text-2xl md:text-3xl tracking-[0.2em] text-white font-bold">
+          [ ACCESS GRANTED ]
+        </span>
+        <span className="font-mono text-[10px] tracking-[0.25em] text-white/40 mt-6 text-center">
+          EXCLUSIVE ARCHIVE ACCESS: AUTHENTICATED USERS ONLY
         </span>
       </div>
+    );
+  }
 
-      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mt-4">
-        <div className="text-cyan-400 font-mono text-lg md:text-xl tracking-[0.1em]">
-          50% BUNDLE DISCOUNT EXPIRES IN: <span className="text-white font-bold">{formatTime(timeLeft)}</span>
-        </div>
+  return (
+    <div className="border border-white/20 bg-black p-8 md:p-10 mb-8 flex flex-col items-center justify-center">
+      <span className="font-mono text-xs tracking-[0.3em] text-white/50 mb-6">
+        [ UPCOMING RELEASE ]
+      </span>
 
-        <button className="mt-5 lg:mt-0 w-full lg:w-auto px-8 py-3 bg-cyan-900/20 border border-cyan-400 text-cyan-400 font-mono text-sm tracking-wider hover:bg-cyan-400 hover:text-black hover:shadow-[0_0_20px_rgba(0,255,255,0.4)] transition-all duration-300">
-          UNLOCK ARCHIVE — 100 CR
-        </button>
+      <div className="flex items-center gap-3 md:gap-5">
+        {[
+          { value: pad(d), label: 'DAYS' },
+          { value: pad(h), label: 'HRS' },
+          { value: pad(m), label: 'MIN' },
+          { value: pad(s), label: 'SEC' },
+        ].map((unit, i) => (
+          <div key={unit.label} className="flex items-center gap-3 md:gap-5">
+            <div className="flex flex-col items-center">
+              <span className="font-mono text-3xl md:text-5xl font-bold tracking-[0.15em] text-white tabular-nums">
+                {unit.value}
+              </span>
+              <span className="font-mono text-[9px] md:text-[10px] tracking-[0.3em] text-white/30 mt-2">
+                {unit.label}
+              </span>
+            </div>
+            {i < 3 && (
+              <span className="font-mono text-2xl md:text-4xl text-white/20 -mt-4">:</span>
+            )}
+          </div>
+        ))}
       </div>
+
+      <span className="font-mono text-[10px] tracking-[0.25em] text-white/40 mt-8 text-center">
+        EXCLUSIVE ARCHIVE ACCESS: AUTHENTICATED USERS ONLY
+      </span>
     </div>
   );
 }
