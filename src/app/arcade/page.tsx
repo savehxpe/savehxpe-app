@@ -8,9 +8,10 @@ import { db } from '@/lib/firebase';
 import VaultRainModule from '@/components/VaultRainModule';
 import VaultDialModule from '@/components/VaultDialModule';
 import CashCaliberEngine from '@/components/CashCaliberEngine';
+import VoidRoulette from '@/components/VoidRoulette';
 
 const isDev = process.env.NODE_ENV === 'development';
-type GameMode = 'LOBBY' | 'DIAGNOSTIC' | 'VAULT_RAIN' | 'VAULT_DIAL' | 'CASH_CALIBER' | 'GAME_OVER';
+type GameMode = 'LOBBY' | 'DIAGNOSTIC' | 'VAULT_RAIN' | 'VAULT_DIAL' | 'CASH_CALIBER' | 'VOID_ROULETTE' | 'GAME_OVER';
 
 export default function ArcadePage() {
     const router = useRouter();
@@ -75,6 +76,12 @@ export default function ArcadePage() {
     const handlePlayCashCaliber = () => {
         if (!runPreflight(10)) return;
         setGameState('CASH_CALIBER');
+        setErrorMsg(null);
+    };
+
+    const handlePlayVoidRoulette = () => {
+        if (!runPreflight(15)) return;
+        setGameState('VOID_ROULETTE');
         setErrorMsg(null);
     };
 
@@ -254,10 +261,60 @@ export default function ArcadePage() {
     };
 
     /* ═══════════════════════════════════════════════════════════════════════
+       FIREBASE TRANSACTION HOOKS — VOID ROULETTE
+       ═══════════════════════════════════════════════════════════════════════ */
+
+    /** VOID HOOK 1: Ante — Deduct 15 CR */
+    const handleVoidSpinStart = (startCallback: (success: boolean) => void) => {
+        if (!firebaseUser || !userDoc) {
+            if (isDev) {
+                console.warn('[DEV] No auth — skipping Void Roulette ante');
+                startCallback(true);
+                return;
+            }
+            startCallback(false);
+            return;
+        }
+
+        const userRef = doc(db, 'users', firebaseUser.uid);
+        runTransaction(db, async (transaction) => {
+            const docSnap = await transaction.get(userRef);
+            if (!docSnap.exists()) throw new Error("User document does not exist");
+            const currentCredits = docSnap.data().credits || 0;
+            if (currentCredits < 15) throw new Error("Insufficient credits for Void Roulette");
+            transaction.update(userRef, { credits: currentCredits - 15 });
+        })
+            .then(() => {
+                console.log("[VOID TRANSACTION]: 15 CR ante deducted.");
+                startCallback(true);
+            })
+            .catch((err) => {
+                console.error("[VOID TRANSACTION FAIL]:", err);
+                setErrorMsg(err instanceof Error ? err.message : String(err));
+                startCallback(false);
+            });
+    };
+
+    /** VOID HOOK 2: Payout — single increment for credits + XP */
+    const handleVoidPayout = (data: { credits: number; xp: number }) => {
+        if (!firebaseUser) return;
+        if (data.credits === 0 && data.xp === 0) return;
+
+        const userRef = doc(db, 'users', firebaseUser.uid);
+        const updates: Record<string, any> = {};
+        if (data.credits > 0) updates.credits = increment(data.credits);
+        if (data.xp > 0) updates['xp.total'] = increment(data.xp);
+
+        updateDoc(userRef, updates)
+            .then(() => console.log(`[VOID PAYOUT]: CR:+${data.credits}, XP:+${data.xp}`))
+            .catch((err) => console.error("[VOID PAYOUT FAIL]:", err));
+    };
+
+    /* ═══════════════════════════════════════════════════════════════════════
        RENDER
        ═══════════════════════════════════════════════════════════════════════ */
 
-    const isPlaying = gameState === 'VAULT_RAIN' || gameState === 'VAULT_DIAL' || gameState === 'CASH_CALIBER';
+    const isPlaying = gameState === 'VAULT_RAIN' || gameState === 'VAULT_DIAL' || gameState === 'CASH_CALIBER' || gameState === 'VOID_ROULETTE';
 
     return (
         <div className="bg-black text-white font-display min-h-screen flex flex-col overflow-x-hidden selection:bg-white selection:text-black">
@@ -292,7 +349,7 @@ export default function ArcadePage() {
                         </div>
 
                         {/* ── 3-COLUMN CARD GRID ── */}
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
 
                             {/* ─── CARD 1: VAULT RAIN (ACTIVE) ─── */}
                             <div className="border border-cyan-500/50 bg-black p-6 flex flex-col relative group overflow-hidden transition-all hover:border-cyan-400 hover:shadow-[0_0_30px_rgba(0,255,255,0.12)]">
@@ -409,6 +466,48 @@ export default function ArcadePage() {
                                 </button>
                             </div>
 
+                            {/* ─── CARD 4: VOID ROULETTE (ACTIVE) ─── */}
+                            <div className="border border-cyan-500/40 bg-black p-6 flex flex-col relative group overflow-hidden transition-all hover:border-cyan-400 hover:shadow-[0_0_30px_rgba(0,255,255,0.12)]">
+                                <div className="absolute inset-0 bg-cyan-500 opacity-0 group-hover:opacity-[0.03] transition-opacity" />
+
+                                <div className="absolute top-0 right-0 bg-cyan-500/20 text-cyan-400 text-[8px] font-mono font-black tracking-[0.3em] uppercase px-3 py-1 z-10">
+                                    NEW
+                                </div>
+
+                                <h3 className="font-mono text-xl lg:text-2xl font-black tracking-[0.2em] uppercase mb-1 relative z-10" style={{ color: '#00FFFF', textShadow: '2px 2px 0px #004444' }}>
+                                    Void Roulette
+                                </h3>
+                                <p className="font-mono text-[11px] text-white/40 uppercase tracking-[0.15em] mb-8 relative z-10">
+                                    Hold-to-Override Multiplier [RNG]
+                                </p>
+
+                                <div className="mt-auto space-y-3 relative z-10">
+                                    <div className="flex justify-between items-baseline font-mono text-xs border-b border-white/10 pb-2">
+                                        <span className="text-white/50 uppercase tracking-[0.15em]">Ante:</span>
+                                        <span className="text-white font-bold tracking-wider">15 CR</span>
+                                    </div>
+                                    <div className="flex justify-between items-baseline font-mono text-xs border-b border-white/10 pb-2">
+                                        <span className="text-cyan-400 uppercase tracking-[0.1em]">Multipliers:</span>
+                                        <span className="text-white font-bold tracking-wider">1.5x / 2x / 5x</span>
+                                    </div>
+                                    <div className="flex justify-between items-baseline font-mono text-xs border-b border-white/10 pb-2">
+                                        <span className="text-red-400/60 uppercase tracking-[0.1em]">Crash (0x):</span>
+                                        <span className="text-red-400/80 font-bold tracking-wider text-[11px]">60% Chance</span>
+                                    </div>
+                                </div>
+
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); handlePlayVoidRoulette(); }}
+                                    disabled={gameState === 'DIAGNOSTIC'}
+                                    className={`mt-8 w-full py-4 font-mono font-bold text-sm tracking-[0.25em] uppercase transition-all relative z-10 ${gameState === 'DIAGNOSTIC'
+                                        ? 'bg-white/20 text-white/50 cursor-not-allowed'
+                                        : 'bg-[#001a1a] text-cyan-400 border border-cyan-500/40 hover:bg-cyan-500 hover:text-black hover:border-cyan-400'
+                                        }`}
+                                >
+                                    {gameState === 'DIAGNOSTIC' ? 'Verifying Ledger...' : 'Enter Void'}
+                                </button>
+                            </div>
+
                         </div>
                     </div>
                 )}
@@ -441,6 +540,16 @@ export default function ArcadePage() {
                         onGameStart={handleGameStart}
                         onViralStreak={handleViralStreak}
                         onGameOver={handleGameOver}
+                        onExit={() => setGameState('LOBBY')}
+                    />
+                )}
+
+                {/* ═══ VOID ROULETTE ENGINE ═══ */}
+                {gameState === 'VOID_ROULETTE' && (
+                    <VoidRoulette
+                        credits={userDoc?.credits ?? 0}
+                        onSpinStart={handleVoidSpinStart}
+                        onPayout={handleVoidPayout}
                         onExit={() => setGameState('LOBBY')}
                     />
                 )}
