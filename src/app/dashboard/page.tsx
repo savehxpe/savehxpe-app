@@ -9,6 +9,8 @@ import CommanderWidget from '@/components/CommanderWidget';
 import SystemAlert from '@/components/SystemAlert';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
 import RemixPromoBanner from '@/components/RemixPromoBanner';
+import ScarcityTimer from '@/components/ScarcityTimer';
+import ProxyReferral from '@/components/ProxyReferral';
 
 export default function Dashboard() {
     const router = useRouter();
@@ -199,6 +201,9 @@ DARK INDUSTRIAL PHONK X FREDDIE GIBBS FLOW. 150 BPM. DISTORTED 808s, GLITCHED HI
                                     </span>
                                 </div>
                             </div>
+
+                            {/* Viral Loop — Proxy Referral */}
+                            <ProxyReferral fanId={userDoc?.name || firebaseUser?.uid || 'GUEST-001'} />
                         </div>
                         <nav className="flex-1 px-4 py-2 flex flex-col gap-2">
                             <button onClick={() => router.push('/dashboard')} className="flex w-full items-center gap-3 px-4 py-3 text-white bg-white/10 rounded border border-white/5 uppercase tracking-wider text-sm font-bold">
@@ -255,8 +260,9 @@ DARK INDUSTRIAL PHONK X FREDDIE GIBBS FLOW. 150 BPM. DISTORTED 808s, GLITCHED HI
                             </div>
                         </header>
                         <div className="flex-1 overflow-y-auto">
-                            {/* Remix Promo Section */}
+                            {/* Scarcity Engine + Remix Promo Section */}
                             <section className="p-6 md:p-10 lg:p-16 w-full">
+                                <ScarcityTimer />
                                 <RemixPromoBanner />
 
                                 {/* Handout Bundle Card */}
