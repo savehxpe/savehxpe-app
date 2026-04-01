@@ -151,18 +151,18 @@ export default function ArcadePage() {
     };
 
     /** HOOK 3: Game Over — single atomic increment for XP + credit bonus */
-    const handleGameOver = (data: { score: number; xp: number; engagement: string; viralReached: boolean; creditBonus: number }) => {
+    const handleGameOver = (data: { score: number; xp: number; engagement: string; viralReached: boolean; creditBonus?: number }) => {
         if (!firebaseUser) return;
 
         const userRef = doc(db, 'users', firebaseUser.uid);
         const updates: Record<string, any> = {
             'xp.total': increment(data.xp),
         };
-        if (data.creditBonus > 0) {
+        if (data.creditBonus && data.creditBonus > 0) {
             updates.credits = increment(data.creditBonus);
         }
         updateDoc(userRef, updates)
-            .then(() => console.log(`[GAME OVER]: Saved — XP:+${data.xp}, CR:+${data.creditBonus}`))
+            .then(() => console.log(`[GAME OVER]: Saved — XP:+${data.xp}, CR:+${data.creditBonus ?? 0}`))
             .catch((err) => console.error("[GAME OVER WRITE FAIL]:", err));
     };
 
