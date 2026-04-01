@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
-import { doc, runTransaction, setDoc, serverTimestamp, updateDoc, increment } from 'firebase/firestore';
+import { doc, runTransaction, setDoc, serverTimestamp, updateDoc, increment, arrayUnion } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import VaultRainModule from '@/components/VaultRainModule';
 import VaultDialModule from '@/components/VaultDialModule';
